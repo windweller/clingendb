@@ -156,7 +156,7 @@ def train_module(model, optimizer,
     criterion = nn.CrossEntropyLoss()
 
     exp_cost = None
-    end_of_epoch = False
+    end_of_epoch = True # False  # set true because we want immediate feedback...
     iter = 0
     best_valid = 0.
     epoch = 1
