@@ -88,14 +88,14 @@ class Model(nn.Module):
         output = self.drop(output)
         return self.out(output)
 
-def get_multiclass_accuracy(preds, labels):
+def get_multiclass_accuracy(preds, y_label):
     # this can't be preds, must be output!!!
-    label_cat = range(len(labels))
+    label_cat = range(len(label_list))
     labels_accu = {}
 
     for la in label_cat:
         # for each label, we get the index of the correct labels
-        idx_of_cat = labels == la
+        idx_of_cat = y_label == la
         cat_preds = preds[idx_of_cat]
         if cat_preds.size != 0:
             accu = np.mean(cat_preds == la)
