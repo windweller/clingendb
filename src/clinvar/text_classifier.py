@@ -64,6 +64,7 @@ use_cuda = torch.cuda.is_available()
 if use_cuda:
     torch.cuda.manual_seed_all(args.seed)
 
+
 class Model(nn.Module):
     def __init__(self, vocab, emb_dim=100, hidden_size=256, depth=1, nclasses=5):
         super(Model, self).__init__()
@@ -87,6 +88,7 @@ class Model(nn.Module):
 
         output = self.drop(output)
         return self.out(output)
+
 
 def get_multiclass_accuracy(preds, y_label):
     # this can't be preds, must be output!!!
@@ -112,8 +114,11 @@ def cumulate_multiclass_accuracy(total_accu, labels_accu):
 
 
 def get_mean_multiclass_accuracy(total_accu):
+    new_dict = {}
     for k, v in total_accu.iteritems():
-        total_accu[k] = np.mean(total_accu[k])
+        new_dict[k] = np.mean(total_accu[k])
+    return new_dict
+
 
 def eval_model(model, valid_iter):
     model.eval()
@@ -142,9 +147,10 @@ def eval_model(model, valid_iter):
             break
 
     multiclass_accu_msg = ''
-    get_mean_multiclass_accuracy(total_labels_accu)
+    mean_multi_accu = get_mean_multiclass_accuracy(total_labels_accu)
+
     import pdb; pdb.set_trace()
-    for k, v in total_labels_accu.iteritems():
+    for k, v in mean_multi_accu.iteritems():
         multiclass_accu_msg += labels[k] + ": " + str(v) + " "
 
     logging.info(multiclass_accu_msg)
@@ -160,7 +166,7 @@ def train_module(model, optimizer,
     criterion = nn.CrossEntropyLoss()
 
     exp_cost = None
-    end_of_epoch = True # False  # set true because we want immediate feedback...
+    end_of_epoch = True  # False  # set true because we want immediate feedback...
     iter = 0
     best_valid = 0.
     epoch = 1
@@ -193,7 +199,7 @@ def train_module(model, optimizer,
 
         if iter % 100 == 0:
             logging.info("iter {} lr={} train_loss={} exp_cost={} \n".format(iter, optimizer.param_groups[0]['lr'],
-                                                                 loss.data[0], exp_cost))
+                                                                             loss.data[0], exp_cost))
 
         if end_of_epoch:
             valid_accu = eval_model(model, valid_iter)
