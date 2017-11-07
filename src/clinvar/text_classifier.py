@@ -111,7 +111,7 @@ def cumulate_multiclass_accuracy(total_accu, labels_accu):
         total_accu[k].extend(v)
 
 
-def get_mean_multiclass_accuracy(self, total_accu):
+def get_mean_multiclass_accuracy(total_accu):
     for k, v in total_accu.iteritems():
         total_accu[k] = np.mean(total_accu[k])
 
@@ -142,6 +142,8 @@ def eval_model(model, valid_iter):
             break
 
     multiclass_accu_msg = ''
+    get_mean_multiclass_accuracy(total_labels_accu)
+    import pdb; pdb.set_trace()
     for k, v in total_labels_accu.iteritems():
         multiclass_accu_msg += labels[k] + ": " + str(v) + " "
 
@@ -190,8 +192,8 @@ def train_module(model, optimizer,
             exp_cost = 0.99 * exp_cost + 0.01 * loss.data[0]
 
         if iter % 100 == 0:
-            logging.info("iter {} lr={} train_loss={} \n".format(iter, optimizer.param_groups[0]['lr'],
-                                                                 loss.data[0]))
+            logging.info("iter {} lr={} train_loss={} exp_cost={} \n".format(iter, optimizer.param_groups[0]['lr'],
+                                                                 loss.data[0], exp_cost))
 
         if end_of_epoch:
             valid_accu = eval_model(model, valid_iter)
