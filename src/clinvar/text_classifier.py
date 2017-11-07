@@ -130,7 +130,7 @@ def eval_model(model, valid_iter):
         cnt += y.numel()
 
         # compute multiclass
-        labels_accu = get_multiclass_accuracy(preds.cpu().numpy(), y.cpu().numpy())
+        labels_accu = get_multiclass_accuracy(preds.cpu().numpy(), y.data.cpu().numpy())
         if total_labels_accu is None:
             total_labels_accu = labels_accu
         else:
@@ -222,6 +222,18 @@ if __name__ == '__main__':
 
     spacy_en = spacy.load('en')
 
+    with open('../../data/clinvar/text_classification_db_labels.json', 'r') as f:
+        labels = json.load(f)
+
+    # map labels to list
+    label_list = [None] * len(labels)
+    for k, v in labels.items():
+        label_list[v] = k
+
+    labels = label_list
+    print("available labels: ")
+    print(labels)
+
     TEXT = data.Field(sequential=True, tokenize=tokenizer, lower=True)
     LABEL = data.Field(sequential=False, use_vocab=False)
     train, val, test = data.TabularDataset.splits(
@@ -238,14 +250,12 @@ if __name__ == '__main__':
 
     vocab = TEXT.vocab
 
-    with open('../../data/clinvar/text_classification_db_labels.json', 'r') as f:
-        labels = json.load(f)
-
     # so now all you need to do is to create an iterator?
     print("processed")
 
     model = Model(vocab, nclasses=len(labels))
-    model.cuda()
+    if torch.cuda.is_available():
+        model.cuda()
 
     sys.stdout.write("num of parameters: {}\n".format(
         sum(x.numel() for x in model.parameters() if x.requires_grad)
