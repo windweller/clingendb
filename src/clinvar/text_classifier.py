@@ -78,6 +78,7 @@ class Model(nn.Module):
         self.out = nn.Linear(d_out, nclasses)
         self.embed = nn.Embedding(len(vocab), emb_dim)
         self.embed.weight.data.copy_(vocab.vectors)
+        # self.embed.weight.requires_grad = False  # no training on word embedding?
 
     def forward(self, input):
         embed_input = self.embed(input)
@@ -88,6 +89,7 @@ class Model(nn.Module):
         return self.out(output)
 
 def get_multiclass_accuracy(preds, labels):
+    # this can't be preds, must be output!!!
     label_cat = range(len(labels))
     labels_accu = {}
 
@@ -130,7 +132,7 @@ def eval_model(model, valid_iter):
         cnt += y.numel()
 
         # compute multiclass
-        labels_accu = get_multiclass_accuracy(preds.cpu().numpy(), y.data.cpu().numpy())
+        labels_accu = get_multiclass_accuracy(output.data.cpu().numpy(), y.data.cpu().numpy())
         if total_labels_accu is None:
             total_labels_accu = labels_accu
         else:
@@ -250,7 +252,7 @@ if __name__ == '__main__':
 
     vocab = TEXT.vocab
 
-    # so now all you need to do is to create an iterator?
+    # so now all you need to do is to create an iterator
     print("processed")
 
     model = Model(vocab, nclasses=len(labels))
