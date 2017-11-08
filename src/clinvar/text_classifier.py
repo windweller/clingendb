@@ -92,6 +92,7 @@ class Model(nn.Module):
 
 def get_multiclass_accuracy(preds, y_label):
     # this can't be preds, must be output!!!
+    # preds: (batch_size, label_size), y_label; (label_size)
     label_cat = range(len(label_list))
     labels_accu = {}
 
@@ -137,7 +138,7 @@ def eval_model(model, valid_iter):
         cnt += y.numel()
 
         # compute multiclass
-        labels_accu = get_multiclass_accuracy(output.data.cpu().numpy(), y.data.cpu().numpy())
+        labels_accu = get_multiclass_accuracy(preds.cpu().numpy(), y.data.cpu().numpy())
         if total_labels_accu is None:
             total_labels_accu = labels_accu
         else:
