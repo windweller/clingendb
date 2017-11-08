@@ -150,7 +150,6 @@ def eval_model(model, valid_iter):
     multiclass_accu_msg = ''
     mean_multi_accu = get_mean_multiclass_accuracy(total_labels_accu)
 
-    import pdb; pdb.set_trace()
     for k, v in mean_multi_accu.iteritems():
         multiclass_accu_msg += labels[k] + ": " + str(v) + " "
 
