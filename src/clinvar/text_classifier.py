@@ -35,7 +35,7 @@ argparser = argparse.ArgumentParser(sys.argv[0], conflict_handler='resolve')
 argparser.add_argument("--data_dir", type=str, default='./data', help="training file")
 argparser.add_argument("--batch_size", "--batch", type=int, default=32)
 argparser.add_argument("--unroll_size", type=int, default=35)
-argparser.add_argument("--max_epoch", type=int, default=40)
+argparser.add_argument("--max_epoch", type=int, default=5)
 argparser.add_argument("--d", type=int, default=910)
 argparser.add_argument("--dropout", type=float, default=0.3,
                        help="dropout of word embeddings and softmax output")
@@ -90,9 +90,8 @@ class Model(nn.Module):
         return self.out(output)
 
 
-def get_multiclass_accuracy(preds, y_label):
-    # this can't be preds, must be output!!!
-    # preds: (batch_size, label_size), y_label; (label_size)
+def get_multiclass_recall(preds, y_label):
+    # preds: (label_size), y_label; (label_size)
     label_cat = range(len(label_list))
     labels_accu = {}
 
@@ -100,6 +99,23 @@ def get_multiclass_accuracy(preds, y_label):
         # for each label, we get the index of the correct labels
         idx_of_cat = y_label == la
         cat_preds = preds[idx_of_cat]
+        if cat_preds.size != 0:
+            accu = np.mean(cat_preds == la)
+            labels_accu[la] = [accu]
+        else:
+            labels_accu[la] = []
+
+    return labels_accu
+
+
+def get_multiclass_prec(preds, y_label):
+    label_cat = range(len(label_list))
+    labels_accu = {}
+
+    for la in label_cat:
+        # for each label, we get the index of predictions
+        idx_of_cat = preds == la
+        cat_preds = y_label[idx_of_cat]  # ground truth
         if cat_preds.size != 0:
             accu = np.mean(cat_preds == la)
             labels_accu[la] = [accu]
@@ -127,7 +143,8 @@ def eval_model(model, valid_iter):
     correct = 0.0
     cnt = 0
     total_loss = 0.0
-    total_labels_accu = None
+    total_labels_recall = None
+    total_labels_prec = None
     for data in valid_iter:
         x, y = data.Text, data.Description
         output = model(x)
@@ -138,22 +155,33 @@ def eval_model(model, valid_iter):
         cnt += y.numel()
 
         # compute multiclass
-        labels_accu = get_multiclass_accuracy(preds.cpu().numpy(), y.data.cpu().numpy())
-        if total_labels_accu is None:
-            total_labels_accu = labels_accu
+        labels_recall = get_multiclass_recall(preds.cpu().numpy(), y.data.cpu().numpy())
+        labels_prec = get_multiclass_prec(preds.cpu().numpy(), y.data.cpu().numpy())
+        if total_labels_recall is None:
+            total_labels_recall = labels_recall
+            total_labels_prec = labels_prec
         else:
-            cumulate_multiclass_accuracy(total_labels_accu, labels_accu)
+            cumulate_multiclass_accuracy(total_labels_recall, labels_recall)
+            cumulate_multiclass_accuracy(total_labels_prec, total_labels_prec)
 
         if cnt >= 10198:
             break
 
-    multiclass_accu_msg = ''
-    mean_multi_accu = get_mean_multiclass_accuracy(total_labels_accu)
+    multiclass_recall_msg = 'Multiclass Recall - '
+    mean_multi_recall = get_mean_multiclass_accuracy(total_labels_recall)
 
-    for k, v in mean_multi_accu.iteritems():
-        multiclass_accu_msg += labels[k] + ": " + str(v) + " "
+    for k, v in mean_multi_recall.iteritems():
+        multiclass_recall_msg += labels[k] + ": " + str(v) + " "
 
-    logging.info(multiclass_accu_msg)
+    multiclass_prec_msg = 'Multiclass Precision - '
+    mean_multi_prec = get_mean_multiclass_accuracy(total_labels_prec)
+
+    for k, v in mean_multi_prec.iteritems():
+        multiclass_prec_msg += labels[k] + ": " + str(v) + " "
+
+    logging.info(multiclass_recall_msg)
+
+    logging.info(multiclass_prec_msg)
 
     model.train()
     return correct / cnt
@@ -230,7 +258,8 @@ def tokenizer(text):  # create a tokenizer function
 if __name__ == '__main__':
     import spacy
 
-    spacy_en = spacy.load('en')
+    # spacy_en = spacy.load('en')
+    spacy_en = spacy.load('en_core_web_sm')
 
     with open('../../data/clinvar/text_classification_db_labels.json', 'r') as f:
         labels = json.load(f)
@@ -280,4 +309,4 @@ if __name__ == '__main__':
     #     lr=0.01)
 
     train_module(model, optimizer, train_iter, val_iter, test_iter,
-                 max_epoch=40)
+                 max_epoch=5)
