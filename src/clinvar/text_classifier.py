@@ -162,7 +162,7 @@ def eval_model(model, valid_iter):
             total_labels_prec = labels_prec
         else:
             cumulate_multiclass_accuracy(total_labels_recall, labels_recall)
-            cumulate_multiclass_accuracy(total_labels_prec, total_labels_prec)
+            cumulate_multiclass_accuracy(total_labels_prec, labels_prec)
 
         if cnt >= 10198:
             break
