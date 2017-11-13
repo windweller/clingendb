@@ -202,6 +202,8 @@ def eval_model(model, valid_iter, save_pred=False):
 
             for pair in zip(all_preds, all_y_labels):
                 writer.writerow({'preds': pair[0], 'labels': pair[1]})
+        with open('./label_map.txt', 'wb') as f:
+            json.dump(label_list, f)
 
     model.train()
     return correct / cnt
