@@ -137,7 +137,8 @@ def get_mean_multiclass_accuracy(total_accu):
     return new_dict
 
 
-def eval_model(model, valid_iter):
+def eval_model(model, valid_iter, save_pred=False):
+    # when test_final is true, we save predictions
     model.eval()
     criterion = nn.CrossEntropyLoss()
     correct = 0.0
@@ -145,6 +146,9 @@ def eval_model(model, valid_iter):
     total_loss = 0.0
     total_labels_recall = None
     total_labels_prec = None
+
+    all_preds = []
+    all_y_labels = []
     for data in valid_iter:
         x, y = data.Text, data.Description
         output = model(x)
@@ -153,6 +157,10 @@ def eval_model(model, valid_iter):
         preds = output.data.max(1)[1]  # already taking max...I think, max returns a tuple
         correct += preds.eq(y.data).cpu().sum()
         cnt += y.numel()
+
+        if save_pred:
+            all_preds.extend(preds.cpu().numpy().tolist())
+            all_y_labels.extend(y.data.cpu().numpy().tolist())
 
         # compute multiclass
         labels_recall = get_multiclass_recall(preds.cpu().numpy(), y.data.cpu().numpy())
@@ -164,7 +172,8 @@ def eval_model(model, valid_iter):
             cumulate_multiclass_accuracy(total_labels_recall, labels_recall)
             cumulate_multiclass_accuracy(total_labels_prec, labels_prec)
 
-        if cnt >= 10198:
+        # so we don't do extra
+        if cnt + 256 > 10198:
             break
 
     multiclass_recall_msg = 'Multiclass Recall - '
@@ -182,6 +191,17 @@ def eval_model(model, valid_iter):
     logging.info(multiclass_recall_msg)
 
     logging.info(multiclass_prec_msg)
+
+    if save_pred:
+        import csv
+        # we store things out, hopefully they are in correct order
+        with open('./confusion_test.csv', 'wb') as csvfile:
+            fieldnames = ['preds', 'labels']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+
+            for pair in zip(all_preds, all_y_labels):
+                writer.writerow({'preds': pair[0], 'labels': pair[1]})
 
     model.train()
     return correct / cnt
@@ -273,7 +293,7 @@ if __name__ == '__main__':
     print("available labels: ")
     print(labels)
 
-    TEXT = data.Field(sequential=True, tokenize=tokenizer, lower=True)
+    TEXT = data.ReversibleField(sequential=True, tokenize=tokenizer, lower=True)
     LABEL = data.Field(sequential=False, use_vocab=False)
     train, val, test = data.TabularDataset.splits(
         path='../../data/clinvar/', train='text_classification_db_train.tsv',
@@ -310,3 +330,6 @@ if __name__ == '__main__':
 
     train_module(model, optimizer, train_iter, val_iter, test_iter,
                  max_epoch=5)
+
+    test_accu = eval_model(model, test_iter, save_pred=True)
+    print("final test accu: {}".format(test_accu))
