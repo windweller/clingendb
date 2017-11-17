@@ -145,10 +145,11 @@ def eval_model(model, valid_iter, save_pred=False):
     cnt = 0
     total_loss = 0.0
     total_labels_recall = None
-    total_labels_prec = None
 
+    total_labels_prec = None
     all_preds = []
     all_y_labels = []
+    all_orig_texts = []
     for data in valid_iter:
         x, y = data.Text, data.Description
         output = model(x)
@@ -157,6 +158,9 @@ def eval_model(model, valid_iter, save_pred=False):
         preds = output.data.max(1)[1]  # already taking max...I think, max returns a tuple
         correct += preds.eq(y.data).cpu().sum()
         cnt += y.numel()
+
+        orig_text = data.Text.reverse(x)
+        all_orig_texts.extend(orig_text)
 
         if save_pred:
             all_preds.extend(preds.cpu().numpy().tolist())
@@ -196,12 +200,12 @@ def eval_model(model, valid_iter, save_pred=False):
         import csv
         # we store things out, hopefully they are in correct order
         with open('./confusion_test.csv', 'wb') as csvfile:
-            fieldnames = ['preds', 'labels']
+            fieldnames = ['preds', 'labels', 'text']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
 
-            for pair in zip(all_preds, all_y_labels):
-                writer.writerow({'preds': pair[0], 'labels': pair[1]})
+            for pair in zip(all_preds, all_y_labels, all_orig_texts):
+                writer.writerow({'preds': pair[0], 'labels': pair[1], 'text':pair[2]})
         with open('./label_map.txt', 'wb') as f:
             json.dump(label_list, f)
 
@@ -262,10 +266,10 @@ def train_module(model, optimizer,
 
             if valid_accu > best_valid:
                 best_valid = valid_accu
-                test_accu = eval_model(model, test_iter)
-                sys.stdout.write("test_acc: {:.6f}\n".format(
-                    test_accu
-                ))
+                # test_accu = eval_model(model, test_iter)
+                # sys.stdout.write("test_acc: {:.6f}\n".format(
+                #     test_accu
+                # ))
             sys.stdout.write("\n")
             end_of_epoch = False
 
@@ -305,8 +309,9 @@ if __name__ == '__main__':
     TEXT.build_vocab(train, vectors="glove.6B.100d")
 
     # data is on GPU already!
+    # this is only shuffling train...
     train_iter, val_iter, test_iter = data.Iterator.splits(
-        (train, val, test), sort_key=lambda x: len(x.Text),
+        (train, val, test),      # sort_key=lambda x: len(x.Text)  # this might cause disorder??
         batch_sizes=(32, 256, 256), device=args.gpu)
 
     vocab = TEXT.vocab
