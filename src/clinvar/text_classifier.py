@@ -12,6 +12,8 @@ import math
 import json
 from os.path import join as pjoin
 
+from torch.nn.utils.rnn import pad_packed_sequence as unpack
+
 import numpy as np
 import torch
 import torch.optim as optim
@@ -23,9 +25,6 @@ from torchtext import data
 import logging
 
 import sys
-
-from matplotlib import cm
-cm.get_cmap()
 
 reload(sys)
 sys.setdefaultencoding('utf-8')
@@ -92,9 +91,19 @@ class Model(nn.Module):
             logging.info("adding scaled dot attention matrix")
             self.key_w = nn.Parameter(torch.randn(hidden_size, hidden_size))
 
-    def forward(self, input):
+    def forward(self, input, lengths=None):
         embed_input = self.embed(input)
-        output, hidden = self.encoder(embed_input)
+
+        packed_emb = embed_input
+        if lengths is not None:
+            lengths = lengths.view(-1).tolist()
+            packed_emb = nn.utils.rnn.pack_padded_sequence(embed_input, lengths)
+
+        output, hidden = self.encoder(packed_emb)  # embed_input
+
+        if lengths is not None:
+            output = unpack(output)[0]
+
         if self.temp_max_pool:
             output = torch.max(output, 0)[0].squeeze(0)
         elif self.scaled_dot_attn:
@@ -109,8 +118,6 @@ class Model(nn.Module):
             keys_view = torch.transpose(keys, 0, 1).contiguous().view(output.size()[0], output.size()[1], 1)
             # (time, batch_size, 1) * (time, batch_size, hidden_state)
             output = torch.sum(output * keys_view, 0)
-            # assert len(output.size()) == 2
-            # assert output.size()[1] == self.hidden_size
             return self.out(output), keys  # (batch_size, time)
         else:
             output = output[-1, :, :]  # concatenate 2 directions into 1
@@ -181,9 +188,9 @@ def eval_model(model, valid_iter, save_pred=False):
     all_orig_texts = []
     all_keys = []
     for data in valid_iter:
-        x, y = data.Text, data.Description
+        (x, x_lengths), y = data.Text, data.Description
         if args.attn:
-            output, keys = model(x)
+            output, keys = model(x, x_lengths)
             all_keys.extend(keys.data.cpu().numpy().tolist())
         else:
             output = model(x)
@@ -265,12 +272,12 @@ def train_module(model, optimizer,
         iter += 1
 
         model.zero_grad()
-        x, y = data.Text, data.Description
+        (x, x_lengths), y = data.Text, data.Description
 
         cnt += y.numel()
 
         if args.attn:
-            output, keys = model(x)
+            output, keys = model(x, x_lengths)
         else:
             output = model(x)
 
@@ -339,7 +346,7 @@ if __name__ == '__main__':
     print("available labels: ")
     print(labels)
 
-    TEXT = data.ReversibleField(sequential=True, tokenize=tokenizer, lower=True)
+    TEXT = data.ReversibleField(sequential=True, tokenize=tokenizer, lower=True, include_lengths=True)
     LABEL = data.Field(sequential=False, use_vocab=False)
     train, val, test = data.TabularDataset.splits(
         path='../../data/clinvar/', train='text_classification_db_train.tsv',
@@ -352,7 +359,7 @@ if __name__ == '__main__':
     # this is only shuffling train...
     train_iter, val_iter, test_iter = data.Iterator.splits(
         (train, val, test),      # sort_key=lambda x: len(x.Text)  # this might cause disorder??
-        batch_sizes=(32, 256, 256), device=args.gpu)
+        batch_sizes=(32, 256, 256), device=args.gpu, sort_within_batch=True)
 
     vocab = TEXT.vocab
 
