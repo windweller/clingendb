@@ -101,6 +101,8 @@ class Model(nn.Module):
             output = torch.sum(output * keys, 0)
             assert len(output.size()) == 2
             assert output.size()[1] == self.hidden_size
+
+            return self.out(output), keys
         else:
             output = output[-1, :, :]  # concatenate 2 directions into 1
 
@@ -168,9 +170,14 @@ def eval_model(model, valid_iter, save_pred=False):
     all_preds = []
     all_y_labels = []
     all_orig_texts = []
+    all_keys = []
     for data in valid_iter:
         x, y = data.Text, data.Description
-        output = model(x)
+        if args.attn:
+            output, keys = model(x)
+            all_keys.extend(keys.data.cpu().numpy().tolist())
+        else:
+            output = model(x)
         loss = criterion(output, y)
         total_loss += loss.data[0] * x.size(1)
         preds = output.data.max(1)[1]  # already taking max...I think, max returns a tuple
@@ -224,6 +231,8 @@ def eval_model(model, valid_iter, save_pred=False):
 
             for pair in zip(all_preds, all_y_labels, all_orig_texts):
                 writer.writerow({'preds': pair[0], 'labels': pair[1], 'text':pair[2]})
+        with open('./attn_map.json', 'wb') as f:
+            json.dump([all_preds, all_y_labels, all_orig_texts, all_keys], f)
         with open('./label_map.txt', 'wb') as f:
             json.dump(label_list, f)
 
@@ -337,7 +346,7 @@ if __name__ == '__main__':
     # so now all you need to do is to create an iterator
     print("processed")
 
-    model = Model(vocab, nclasses=len(labels), attn=args.attn)
+    model = Model(vocab, nclasses=len(labels), scaled_dot_attn=args.attn)
     if torch.cuda.is_available():
         model.cuda(args.gpu)
 
