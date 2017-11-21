@@ -50,6 +50,7 @@ argparser.add_argument("--clip_grad", type=float, default=5)
 argparser.add_argument("--run_dir", type=str, default='./sandbox')
 argparser.add_argument("--seed", type=int, default=123)
 argparser.add_argument("--gpu", type=int, default=-1)
+argparser.add_argument("--attn", action="store_true", help="by using attention to generate some interpretation")
 
 args = argparser.parse_args()
 print (args)
@@ -66,8 +67,11 @@ if use_cuda:
 
 
 class Model(nn.Module):
-    def __init__(self, vocab, emb_dim=100, hidden_size=256, depth=1, nclasses=5):
+    def __init__(self, vocab, emb_dim=100, hidden_size=256, depth=1, nclasses=5,
+                 attn=False, temp_max_pool=False):
         super(Model, self).__init__()
+        self.attn = attn
+        self.temp_max_pool = temp_max_pool
         self.drop = nn.Dropout(0.2)
         self.encoder = nn.LSTM(
             emb_dim,
@@ -84,7 +88,13 @@ class Model(nn.Module):
     def forward(self, input):
         embed_input = self.embed(input)
         output, hidden = self.encoder(embed_input)
-        output = output[-1]
+        if not self.temp_max_pool:
+            pass
+        elif not self.attn:
+            pass
+        else:
+            hid = hidden[0]  # (layer * directions, batch-size, hid-dim)
+            output = torch.cat((hid[0], hid[1]), 1)  # concatenate 2 directions into 1
 
         output = self.drop(output)
         return self.out(output)
@@ -159,7 +169,7 @@ def eval_model(model, valid_iter, save_pred=False):
         correct += preds.eq(y.data).cpu().sum()
         cnt += y.numel()
 
-        orig_text = data.Text.reverse(x)
+        orig_text = TEXT.reverse(x.data)
         all_orig_texts.extend(orig_text)
 
         if save_pred:
@@ -319,9 +329,9 @@ if __name__ == '__main__':
     # so now all you need to do is to create an iterator
     print("processed")
 
-    model = Model(vocab, nclasses=len(labels))
+    model = Model(vocab, nclasses=len(labels), attn=args.attn)
     if torch.cuda.is_available():
-        model.cuda()
+        model.cuda(args.gpu)
 
     sys.stdout.write("num of parameters: {}\n".format(
         sum(x.numel() for x in model.parameters() if x.requires_grad)
