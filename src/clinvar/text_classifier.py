@@ -92,13 +92,19 @@ class Model(nn.Module):
     def forward(self, input):
         embed_input = self.embed(input)
         output, hidden = self.encoder(embed_input)
-        if not self.temp_max_pool:
+        if self.temp_max_pool:
             output = torch.max(output, 0)[0].squeeze(0)
         elif self.scaled_dot_attn:
             # add scaled dot product attention
             enc_output = output[-1]
-            keys = torch.squeeze(torch.dot(self.key_w, enc_output), 0) / torch.sqrt(self.hidden_size)
-            keys = torch.nn.Softmax()(keys).view(-1, 1, 1)  # boradcast?
+            # (batch_size, hidden_state)
+            keys = torch.dot(enc_output, self.key_w) / torch.sqrt(self.hidden_size)
+            # (time, batch_size, hidden_state) * (1, batch_size, hidden_state)
+            keys = torch.sum(keys.view(1, -1, self.hidden_size) * output, 2)
+            # (time, batch_size) -> (batch_size, time)
+            keys = torch.nn.Softmax()(torch.transpose(keys, 0, 1))  # boradcast?
+            keys = torch.transpose(keys, 0, 1).view(output.size()[0], output.size()[1], 1)
+            # (time, batch_size, 1) * (time, batch_size, hidden_state)
             output = torch.sum(output * keys, 0)
             assert len(output.size()) == 2
             assert output.size()[1] == self.hidden_size
