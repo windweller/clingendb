@@ -68,10 +68,11 @@ if use_cuda:
 
 class Model(nn.Module):
     def __init__(self, vocab, emb_dim=100, hidden_size=256, depth=1, nclasses=5,
-                 attn=False, temp_max_pool=False):
+                 scaled_dot_attn=False, temp_max_pool=False):
         super(Model, self).__init__()
-        self.attn = attn
+        self.scaled_dot_attn = scaled_dot_attn
         self.temp_max_pool = temp_max_pool
+        self.hidden_size = hidden_size
         self.drop = nn.Dropout(0.2)
         self.encoder = nn.LSTM(
             emb_dim,
@@ -84,19 +85,26 @@ class Model(nn.Module):
         self.embed = nn.Embedding(len(vocab), emb_dim)
         self.embed.weight.data.copy_(vocab.vectors)
         # self.embed.weight.requires_grad = False  # no training on word embedding?
+        if self.scaled_dot_attn:
+            self.key_w = nn.Parameter(torch.randn(hidden_size, hidden_size))
 
     def forward(self, input):
         embed_input = self.embed(input)
         output, hidden = self.encoder(embed_input)
         if not self.temp_max_pool:
-            pass
-        elif not self.attn:
-            pass
+            output = torch.max(output, 0)[0].squeeze(0)
+        elif self.scaled_dot_attn:
+            # add scaled dot product attention
+            enc_output = output[-1]
+            keys = torch.squeeze(torch.dot(self.key_w, enc_output), 0) / torch.sqrt(self.hidden_size)
+            keys = torch.nn.Softmax()(keys).view(-1, 1, 1)  # boradcast?
+            output = torch.sum(output * keys, 0)
+            assert len(output.size()) == 2
+            assert output.size()[1] == self.hidden_size
         else:
-            hid = hidden[0]  # (layer * directions, batch-size, hid-dim)
-            output = torch.cat((hid[0], hid[1]), 1)  # concatenate 2 directions into 1
+            output = output[-1, :, :]  # concatenate 2 directions into 1
 
-        output = self.drop(output)
+        # output = self.drop(output)
         return self.out(output)
 
 
