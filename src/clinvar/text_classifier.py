@@ -86,6 +86,7 @@ class Model(nn.Module):
         self.embed.weight.data.copy_(vocab.vectors)
         # self.embed.weight.requires_grad = False  # no training on word embedding?
         if self.scaled_dot_attn:
+            logging.info("adding scaled dot attention matrix")
             self.key_w = nn.Parameter(torch.randn(hidden_size, hidden_size))
 
     def forward(self, input):
@@ -260,7 +261,11 @@ def train_module(model, optimizer,
 
         cnt += y.numel()
 
-        output = model(x)
+        if args.attn:
+            output, keys = model(x)
+        else:
+            output = model(x)
+
         loss = criterion(output, y)
         loss.backward()
 
