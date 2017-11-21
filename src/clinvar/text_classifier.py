@@ -103,7 +103,7 @@ class Model(nn.Module):
             keys = torch.sum(keys.view(1, -1, self.hidden_size) * output, 2)
             # (time, batch_size) -> (batch_size, time)
             keys = torch.nn.Softmax()(torch.transpose(keys, 0, 1))  # boradcast?
-            keys = torch.transpose(keys, 0, 1).view(output.size()[0], output.size()[1], 1)
+            keys = torch.transpose(keys, 0, 1).contiguous().view(output.size()[0], output.size()[1], 1)
             # (time, batch_size, 1) * (time, batch_size, hidden_state)
             output = torch.sum(output * keys, 0)
             assert len(output.size()) == 2
