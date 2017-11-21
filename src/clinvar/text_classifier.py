@@ -358,7 +358,7 @@ if __name__ == '__main__':
     # data is on GPU already!
     # this is only shuffling train...
     train_iter, val_iter, test_iter = data.Iterator.splits(
-        (train, val, test),      # sort_key=lambda x: len(x.Text)  # this might cause disorder??
+        (train, val, test), sort_key=lambda x: len(x.Text),  # no global sort, but within-batch-sort
         batch_sizes=(32, 256, 256), device=args.gpu, sort_within_batch=True)
 
     vocab = TEXT.vocab
