@@ -24,6 +24,9 @@ import logging
 
 import sys
 
+from matplotlib import cm
+cm.get_cmap()
+
 reload(sys)
 sys.setdefaultencoding('utf-8')
 
@@ -98,18 +101,17 @@ class Model(nn.Module):
             # add scaled dot product attention
             enc_output = output[-1]
             # (batch_size, hidden_state)
-            keys = torch.dot(enc_output, self.key_w) / torch.sqrt(self.hidden_size)
+            keys = torch.mm(enc_output, self.key_w) / np.sqrt(self.hidden_size)
             # (time, batch_size, hidden_state) * (1, batch_size, hidden_state)
             keys = torch.sum(keys.view(1, -1, self.hidden_size) * output, 2)
             # (time, batch_size) -> (batch_size, time)
             keys = torch.nn.Softmax()(torch.transpose(keys, 0, 1))  # boradcast?
-            keys = torch.transpose(keys, 0, 1).contiguous().view(output.size()[0], output.size()[1], 1)
+            keys_view = torch.transpose(keys, 0, 1).contiguous().view(output.size()[0], output.size()[1], 1)
             # (time, batch_size, 1) * (time, batch_size, hidden_state)
-            output = torch.sum(output * keys, 0)
-            assert len(output.size()) == 2
-            assert output.size()[1] == self.hidden_size
-
-            return self.out(output), keys
+            output = torch.sum(output * keys_view, 0)
+            # assert len(output.size()) == 2
+            # assert output.size()[1] == self.hidden_size
+            return self.out(output), keys  # (batch_size, time)
         else:
             output = output[-1, :, :]  # concatenate 2 directions into 1
 
