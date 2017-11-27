@@ -57,6 +57,8 @@ argparser.add_argument("--attn", action="store_true", help="by using attention t
 args = argparser.parse_args()
 print (args)
 
+VERY_NEGATIVE_NUMBER = -1e30
+
 """
 Seeding
 """
@@ -70,7 +72,7 @@ if use_cuda:
 
 class Model(nn.Module):
     def __init__(self, vocab, emb_dim=100, hidden_size=256, depth=1, nclasses=5,
-                 scaled_dot_attn=False, temp_max_pool=False):
+                 scaled_dot_attn=False, temp_max_pool=False, attn_head=1):
         super(Model, self).__init__()
         self.scaled_dot_attn = scaled_dot_attn
         self.temp_max_pool = temp_max_pool
@@ -81,15 +83,40 @@ class Model(nn.Module):
             hidden_size,
             depth,
             dropout=0.2,
-            bidirectional=False)
+            bidirectional=False)  # ha...not even bidirectional
         d_out = hidden_size
-        self.out = nn.Linear(d_out, nclasses)
+        self.out = nn.Linear(d_out * attn_head, nclasses)
         self.embed = nn.Embedding(len(vocab), emb_dim)
         self.embed.weight.data.copy_(vocab.vectors)
         # self.embed.weight.requires_grad = False  # no training on word embedding?
         if self.scaled_dot_attn:
             logging.info("adding scaled dot attention matrix")
-            self.key_w = nn.Parameter(torch.randn(hidden_size, hidden_size))
+            # self.key_w = nn.Parameter(torch.randn(hidden_size, hidden_size))
+            self.keys_w = []
+            for _ in range(attn_head):
+                self.keys_w.append(nn.Parameter(torch.randn(hidden_size, hidden_size)))
+
+    def create_mask(self, lengths):
+        # lengths would be a python list here, not a Tensor
+        # [max_len, batch_size]
+        masks = np.ones([max(lengths), len(lengths)], dtype='float32')
+        for i, l in enumerate(lengths):
+            masks[l:, i] = 0.
+        return torch.from_numpy(masks)
+
+    def exp_mask(self, val, mask):
+        """Give very negative number to unmasked elements in val.
+        For example, [-3, -2, 10], [True, True, False] -> [-3, -2, -1e9].
+        Typically, this effectively masks in exponential space (e.g. softmax)
+        Args:
+            val: values to be masked
+            mask: masking boolean tensor, same shape as tensor
+            name: name for output tensor
+        Returns:
+            Same shape as val, where some elements are very small (exponentially zero)
+        """
+        exp_mask = Variable((1 - mask) * VERY_NEGATIVE_NUMBER, requires_grad=False)
+        return val + exp_mask
 
     def forward(self, input, lengths=None):
         embed_input = self.embed(input)
@@ -108,16 +135,26 @@ class Model(nn.Module):
             output = torch.max(output, 0)[0].squeeze(0)
         elif self.scaled_dot_attn:
             # add scaled dot product attention
-            enc_output = output[-1]
+
+            # enc_output = output[-1]
+            enc_output = torch.squeeze(hidden[0])
             # (batch_size, hidden_state)
-            keys = torch.mm(enc_output, self.key_w) / np.sqrt(self.hidden_size)
+            keys = torch.mm(enc_output, self.keys_w[0]) / np.sqrt(self.hidden_size)
+
             # (time, batch_size, hidden_state) * (1, batch_size, hidden_state)
             keys = torch.sum(keys.view(1, -1, self.hidden_size) * output, 2)
+
+            batch_mask = self.create_mask(lengths)
+            maksed_keys = self.exp_mask(keys, batch_mask)
+
             # (time, batch_size) -> (batch_size, time)
-            keys = torch.nn.Softmax()(torch.transpose(keys, 0, 1))  # boradcast?
+            keys = torch.nn.Softmax()(torch.transpose(maksed_keys, 0, 1))  # boradcast?
             keys_view = torch.transpose(keys, 0, 1).contiguous().view(output.size()[0], output.size()[1], 1)
             # (time, batch_size, 1) * (time, batch_size, hidden_state)
             output = torch.sum(output * keys_view, 0)
+
+            # TODO: need to find a way to store multiple keys
+            # TODO: zip them (pair them up)
             return self.out(output), keys  # (batch_size, time)
         else:
             output = output[-1, :, :]  # concatenate 2 directions into 1
@@ -217,9 +254,7 @@ def eval_model(model, valid_iter, save_pred=False):
             cumulate_multiclass_accuracy(total_labels_recall, labels_recall)
             cumulate_multiclass_accuracy(total_labels_prec, labels_prec)
 
-        # so we don't do extra
-        if cnt + 256 > 10198:
-            break
+        # valid and tests can stop themselves
 
     multiclass_recall_msg = 'Multiclass Recall - '
     mean_multi_recall = get_mean_multiclass_accuracy(total_labels_recall)
@@ -355,11 +390,11 @@ if __name__ == '__main__':
 
     TEXT.build_vocab(train, vectors="glove.6B.100d")
 
-    # data is on GPU already!
-    # this is only shuffling train...
+    # do repeat=False
     train_iter, val_iter, test_iter = data.Iterator.splits(
         (train, val, test), sort_key=lambda x: len(x.Text),  # no global sort, but within-batch-sort
         batch_sizes=(32, 256, 256), device=args.gpu, sort_within_batch=True)
+    # if not labeling sort=False, then you are sorting through valid and test
 
     vocab = TEXT.vocab
 
