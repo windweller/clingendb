@@ -43,7 +43,7 @@ argparser.add_argument("--dropout", type=float, default=0.3,
                        help="dropout of word embeddings and softmax output")
 argparser.add_argument("--rnn_dropout", type=float, default=0.2,
                        help="dropout of RNN layers")
-argparser.add_argument("--depth", type=int, default=2)
+argparser.add_argument("--depth", type=int, default=1)
 argparser.add_argument("--lr", type=float, default=1.0)
 # argparser.add_argument("--lr_decay", type=float, default=0.98)
 # argparser.add_argument("--lr_decay_epoch", type=int, default=175)
@@ -91,10 +91,10 @@ class Model(nn.Module):
         # self.embed.weight.requires_grad = False  # no training on word embedding?
         if self.scaled_dot_attn:
             logging.info("adding scaled dot attention matrix")
-            # self.key_w = nn.Parameter(torch.randn(hidden_size, hidden_size))
-            self.keys_w = []
-            for _ in range(attn_head):
-                self.keys_w.append(nn.Parameter(torch.randn(hidden_size, hidden_size)))
+            self.key_w = nn.Parameter(torch.randn(hidden_size, hidden_size))
+            # self.keys_w = []
+            # for _ in range(attn_head):
+            #     self.keys_w.append(nn.Parameter(torch.randn(hidden_size, hidden_size)))
 
     def create_mask(self, lengths):
         # lengths would be a python list here, not a Tensor
@@ -139,7 +139,7 @@ class Model(nn.Module):
             # enc_output = output[-1]
             enc_output = torch.squeeze(hidden[0])
             # (batch_size, hidden_state)
-            keys = torch.mm(enc_output, self.keys_w[0]) / np.sqrt(self.hidden_size)
+            keys = torch.mm(enc_output, self.key_w) / np.sqrt(self.hidden_size)
 
             # (time, batch_size, hidden_state) * (1, batch_size, hidden_state)
             keys = torch.sum(keys.view(1, -1, self.hidden_size) * output, 2)
