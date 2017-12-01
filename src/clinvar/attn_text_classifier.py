@@ -51,6 +51,8 @@ argparser.add_argument("--clip_grad", type=float, default=5)
 argparser.add_argument("--run_dir", type=str, default='./sandbox')
 argparser.add_argument("--seed", type=int, default=123)
 argparser.add_argument("--gpu", type=int, default=-1)
+argparser.add_argument("--temp_max_pool", action="store_true", help="use temporal max pooling instead of universal query")
+
 
 args = argparser.parse_args()
 print (args)
@@ -77,9 +79,8 @@ def move_to_cuda(th_var):
 
 class Model(nn.Module):
     def __init__(self, vocab, emb_dim=100, hidden_size=256, depth=1, nclasses=5,
-                 scaled_dot_attn=False, temp_max_pool=False):
+                 temp_max_pool=False):
         super(Model, self).__init__()
-        self.scaled_dot_attn = scaled_dot_attn
         self.temp_max_pool = temp_max_pool
         self.hidden_size = hidden_size
         self.drop = nn.Dropout(0.2)
@@ -210,7 +211,7 @@ def eval_model(model, valid_iter, save_pred=False):
     all_keys = []
     for data in valid_iter:
         (x, x_lengths), y = data.Text, data.Description
-        if args.attn:
+        if not args.temp_max_pool:
             output, keys = model(x, x_lengths)
             all_keys.extend(keys.data.cpu().numpy().tolist())
         else:
@@ -295,7 +296,7 @@ def train_module(model, optimizer,
 
         cnt += y.numel()
 
-        if args.attn:
+        if not args.temp_max_pool:
             output, keys = model(x, x_lengths)
         else:
             output = model(x)
@@ -385,7 +386,7 @@ if __name__ == '__main__':
     # so now all you need to do is to create an iterator
     print("processed")
 
-    model = Model(vocab, nclasses=len(labels), scaled_dot_attn=args.attn)
+    model = Model(vocab, nclasses=len(labels))
     if torch.cuda.is_available():
         model.cuda(args.gpu)
 
