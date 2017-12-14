@@ -34,7 +34,7 @@ logging.basicConfig(format='[%(asctime)s] %(levelname)s: %(message)s',
 logger = logging.getLogger(__name__)
 
 argparser = argparse.ArgumentParser(sys.argv[0], conflict_handler='resolve')
-argparser.add_argument("--data_dir", type=str, default='./data', help="training file")
+argparser.add_argument("--dataset", type=str, default='merged', help="merged|sub_sum, merged is the better one")
 argparser.add_argument("--batch_size", "--batch", type=int, default=32)
 argparser.add_argument("--unroll_size", type=int, default=35)
 argparser.add_argument("--max_epoch", type=int, default=5)
@@ -68,6 +68,13 @@ np.random.seed(args.seed)
 use_cuda = torch.cuda.is_available()
 if use_cuda:
     torch.cuda.manual_seed_all(args.seed)
+
+
+def move_to_cuda(th_var):
+    if torch.cuda.is_available():
+        return th_var.cuda()
+    else:
+        return th_var
 
 
 class Model(nn.Module):
@@ -116,7 +123,7 @@ class Model(nn.Module):
             Same shape as val, where some elements are very small (exponentially zero)
         """
         exp_mask = Variable((1 - mask) * VERY_NEGATIVE_NUMBER, requires_grad=False)
-        return val + exp_mask
+        return val + move_to_cuda(exp_mask)
 
     def forward(self, input, lengths=None):
         embed_input = self.embed(input)
@@ -254,7 +261,7 @@ def eval_model(model, valid_iter, save_pred=False):
             cumulate_multiclass_accuracy(total_labels_recall, labels_recall)
             cumulate_multiclass_accuracy(total_labels_prec, labels_prec)
 
-        # valid and tests can stop themselves
+            # valid and tests can stop themselves
 
     multiclass_recall_msg = 'Multiclass Recall - '
     mean_multi_recall = get_mean_multiclass_accuracy(total_labels_recall)
@@ -281,7 +288,7 @@ def eval_model(model, valid_iter, save_pred=False):
             writer.writeheader()
 
             for pair in zip(all_preds, all_y_labels, all_orig_texts):
-                writer.writerow({'preds': pair[0], 'labels': pair[1], 'text':pair[2]})
+                writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2]})
         with open('./attn_map.json', 'wb') as f:
             json.dump([all_preds, all_y_labels, all_orig_texts, all_keys], f)
         with open('./label_map.txt', 'wb') as f:
@@ -294,7 +301,6 @@ def eval_model(model, valid_iter, save_pred=False):
 def train_module(model, optimizer,
                  train_iter, valid_iter, test_iter, max_epoch):
     model.train()
-    cnt = 0
     criterion = nn.CrossEntropyLoss()
 
     exp_cost = None
@@ -303,60 +309,46 @@ def train_module(model, optimizer,
     best_valid = 0.
     epoch = 1
 
-    for data in train_iter:
-        iter += 1
+    for n in range(max_epoch):
+        for data in train_iter:
+            iter += 1
 
-        model.zero_grad()
-        (x, x_lengths), y = data.Text, data.Description
+            model.zero_grad()
+            (x, x_lengths), y = data.Text, data.Description
 
-        cnt += y.numel()
+            if args.attn:
+                output, keys = model(x, x_lengths)
+            else:
+                output = model(x)
 
-        if args.attn:
-            output, keys = model(x, x_lengths)
-        else:
-            output = model(x)
+            loss = criterion(output, y)
+            loss.backward()
 
-        loss = criterion(output, y)
-        loss.backward()
+            torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
 
-        torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
+            optimizer.step()
 
-        optimizer.step()
+            if not exp_cost:
+                exp_cost = loss.data[0]
+            else:
+                exp_cost = 0.99 * exp_cost + 0.01 * loss.data[0]
 
-        if cnt >= 101979:
-            epoch += 1
-            end_of_epoch = True
-            cnt = 0
+            if iter % 100 == 0:
+                logging.info("iter {} lr={} train_loss={} exp_cost={} \n".format(iter, optimizer.param_groups[0]['lr'],
+                                                                                 loss.data[0], exp_cost))
 
-        if not exp_cost:
-            exp_cost = loss.data[0]
-        else:
-            exp_cost = 0.99 * exp_cost + 0.01 * loss.data[0]
+        valid_accu = eval_model(model, valid_iter)
+        sys.stdout.write("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
+            epoch,
+            optimizer.param_groups[0]['lr'],
+            loss.data[0],
+            valid_accu
+        ))
 
-        if iter % 100 == 0:
-            logging.info("iter {} lr={} train_loss={} exp_cost={} \n".format(iter, optimizer.param_groups[0]['lr'],
-                                                                             loss.data[0], exp_cost))
+        if valid_accu > best_valid:
+            best_valid = valid_accu
 
-        if end_of_epoch:
-            valid_accu = eval_model(model, valid_iter)
-            sys.stdout.write("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
-                epoch,
-                optimizer.param_groups[0]['lr'],
-                loss.data[0],
-                valid_accu
-            ))
-
-            if valid_accu > best_valid:
-                best_valid = valid_accu
-                # test_accu = eval_model(model, test_iter)
-                # sys.stdout.write("test_acc: {:.6f}\n".format(
-                #     test_accu
-                # ))
-            sys.stdout.write("\n")
-            end_of_epoch = False
-
-        if epoch == max_epoch:
-            break
+        sys.stdout.write("\n")
 
 
 def tokenizer(text):  # create a tokenizer function
@@ -381,19 +373,28 @@ if __name__ == '__main__':
     print("available labels: ")
     print(labels)
 
-    TEXT = data.ReversibleField(sequential=True, tokenize=tokenizer, lower=True, include_lengths=True)
+    TEXT = data.ReversibleField(sequential=True, tokenize=tokenizer,
+                                lower=True, include_lengths=True)
     LABEL = data.Field(sequential=False, use_vocab=False)
-    train, val, test = data.TabularDataset.splits(
-        path='../../data/clinvar/', train='text_classification_db_train.tsv',
-        validation='text_classification_db_valid.tsv', test='text_classification_db_test.tsv', format='tsv',
-        fields=[('Text', TEXT), ('Description', LABEL)])
+    if args.dataset == 'merged':
+        train, val, test = data.TabularDataset.splits(
+            path='../../data/clinvar/', train='merged_text_classification_db_train.tsv',
+            validation='merged_text_classification_db_valid.tsv',
+            test='merged_text_classification_db_test.tsv', format='tsv',
+            fields=[('Text', TEXT), ('Description', LABEL)])
+    else:
+        train, val, test = data.TabularDataset.splits(
+            path='../../data/clinvar/', train='text_classification_db_train.tsv',
+            validation='text_classification_db_valid.tsv', test='text_classification_db_test.tsv', format='tsv',
+            fields=[('Text', TEXT), ('Description', LABEL)])
 
     TEXT.build_vocab(train, vectors="glove.6B.100d")
 
     # do repeat=False
     train_iter, val_iter, test_iter = data.Iterator.splits(
         (train, val, test), sort_key=lambda x: len(x.Text),  # no global sort, but within-batch-sort
-        batch_sizes=(32, 256, 256), device=args.gpu, sort_within_batch=True)
+        batch_sizes=(32, 256, 256), device=args.gpu,
+        sort_within_batch=True, repeat=False)  # stop infinite runs
     # if not labeling sort=False, then you are sorting through valid and test
 
     vocab = TEXT.vocab
