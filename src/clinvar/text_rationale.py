@@ -433,7 +433,7 @@ def eval_model(model, valid_iter, save_pred=False):
 
         # run the whole model forward mode
         output, z_mask, sparsity_coherence_cost = model.forward(x, x_lengths)
-        loss = model.encoder.get_encoder_loss(output, y)
+        loss, _ = model.encoder.get_encoder_loss(output, y)
 
         # output = encoder.encode(x, x_lengths)
         # loss = criterion(output, y)
