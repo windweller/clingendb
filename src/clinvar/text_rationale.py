@@ -155,7 +155,7 @@ class Encoder(nn.Module):
             # need to handle when mask is all 0...
             # we just ignore it, and not append to list...batch_size can change :)
             if len(torch.nonzero(m)) == 0:
-                list_input.append(TEXT.preprocessing(""))  # it selects nothing
+                list_input.append(["<pad>"])  # this is a bit hacky...but should work
             else:
                 new_t = torch.masked_select(t, m)
                 tok_new_t = TEXT.reverse(new_t.data.view(-1, 1))
