@@ -567,13 +567,13 @@ def train_model(model, optimizer, train_iter, valid_iter, max_epoch):
                 exp_cost = 0.99 * exp_cost + 0.01 * gen_cost_logpz.data[0]
 
             if iter % 100 == 0:
-                logging.info("iter {} lr={} train_loss={} exp_cost={} enc_loss={} sparsity_cost={} \n".format(iter, optimizer.param_groups[0]['lr'],
+                logging.info("iter {} lr={} gen_loss={} exp_cost={} enc_loss={} sparsity_cost={} \n".format(iter, optimizer.param_groups[0]['lr'],
                                                                                  gen_cost_logpz.data[0], exp_cost,
                                                                                 enc_loss.data[0], sparsity_cost.data[0]))
 
 
         valid_accu = eval_model(model, valid_iter)
-        sys.stdout.write("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
+        sys.stdout.write("epoch {} lr={:.6f} gen_train_loss={:.6f} valid_acc={:.6f}\n".format(
             epoch,
             optimizer.param_groups[0]['lr'],
             gen_cost_logpz.data[0],
@@ -846,3 +846,5 @@ if __name__ == '__main__':
 
     # now we start training policy gradient
     train_model(model, optimizer, train_iter, val_iter, args.max_rl_epoch)
+    test_accu = eval_model(model, test_iter, save_pred=True)
+    logger.info("final encoder extracted test accu: {}".format(test_accu))
