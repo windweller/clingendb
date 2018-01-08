@@ -61,6 +61,7 @@ argparser.add_argument("--max_pool", action="store_true", help="use max-pooling"
 argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
 argparser.add_argument("--concrete", action="store_true", help="use concrete distribution instead")
 argparser.add_argument("--update_gen_only", action="store_true", help="During 2nd phase, only update generator, not encoder")
+argparser.add_argument("--bidir", action="store_true", help="whether to use bidrectional LSTM or not")
 
 args = argparser.parse_args()
 print (args)
@@ -116,7 +117,7 @@ class Encoder(nn.Module):
             dropout=args.dropout,
             bidirectional=True)  # for rationale extraction, we don't want order to matter too much
 
-        d_out = hidden_size
+        d_out = hidden_size * 2 if args.bidir else hidden_size
         self.out = nn.Linear(d_out, nclasses)
         self.embed = embed
         self.vocab = vocab
@@ -171,7 +172,7 @@ class Encoder(nn.Module):
             output = nn.utils.rnn.pad_packed_sequence(output)[0]  # return to Tensor
 
         if args.max_pool:
-            output = torch.max(output, 0)[0].squeeze(0)
+            hidden = torch.max(output, 0)[0].squeeze(0)
 
         return output, hidden
 
@@ -200,7 +201,7 @@ class Encoder(nn.Module):
     def encode(self, inputs, lengths, z_mask=None):
         # this is for pretraining, used by Model
         output, hidden = self.forward(inputs, lengths, z_mask)
-        preds = self.out(output)
+        preds = self.out(hidden)
 
         return preds
 
@@ -247,12 +248,14 @@ class SampleGenerator(nn.Module):
             bidirectional=True)
         self.embed = embed
 
+        d_out = hidden_size * 2 if args.bidir else hidden_size
+
         # we still use multiclass softmax loss
         if not args.sigmoid_loss:
-            self.output_layer = nn.Linear(in_features=hidden_size, out_features=2)
+            self.output_layer = nn.Linear(in_features=d_out, out_features=2)
             self.to_prob = nn.Softmax(dim=2)
         else:
-            self.output_layer = nn.Linear(in_features=hidden_size, out_features=1)
+            self.output_layer = nn.Linear(in_features=d_out, out_features=1)
             self.to_prob = nn.Sigmoid()
 
         self.cross_ent_loss_vec = nn.CrossEntropyLoss(reduce=False)  # since we need vector loss
@@ -356,6 +359,8 @@ class ConcreteGenerator(nn.Module):
             depth,
             dropout=args.dropout,
             bidirectional=False)
+
+        d_out = hidden_size * 2 if args.bidir else hidden_size
 
     def forward(self, input):
         # takes in x, output z
