@@ -131,9 +131,9 @@ class Encoder(nn.Module):
 
         masks = inputs != self.vocab.stoi['<pad>']
         if args.gpu == -1:
-            masks = masks.type(torch.FloatTensor)
+            masks = masks.type(torch.FloatTensor).detach()
         else:
-            masks = masks.type(torch.cuda.FloatTensor)
+            masks = masks.type(torch.cuda.FloatTensor).detach()
 
         # Note that z_mask needs to also be on cuda...which it should be
         # also z_mask is a variable...
