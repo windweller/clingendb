@@ -431,6 +431,9 @@ def eval_model(model, valid_iter, save_pred=False):
     # since we can't really "evaluate" the extract inputs,
     # we can only do encoder eval, basically
     model.eval()
+    model.encoder.eval()
+    model.generator.eval()
+
     criterion = nn.CrossEntropyLoss()
     correct = 0.0
     cnt = 0
@@ -443,8 +446,10 @@ def eval_model(model, valid_iter, save_pred=False):
     all_orig_texts = []
     for data in valid_iter:
         (x, x_lengths), y = data.Text, data.Description
-        output = model(x)
+
+        output = encoder.encode(x, x_lengths)
         loss = criterion(output, y)
+
         total_loss += loss.data[0] * x.size(1)  # because cross-ent by default is average
         preds = output.data.max(1)[1]  # already taking max...I think, max returns a tuple
         correct += preds.eq(y.data).cpu().sum()
@@ -545,6 +550,7 @@ def train_model(model, optimizer, train_iter, valid_iter, max_epoch):
                                                                                  gen_cost_logpz.data[0], exp_cost,
                                                                                 enc_loss.data[0], sparsity_cost.data[0]))
 
+
         # valid_accu = eval_model(model, valid_iter)
         # sys.stdout.write("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
         #     epoch,
@@ -553,6 +559,7 @@ def train_model(model, optimizer, train_iter, valid_iter, max_epoch):
         #     valid_accu
         # ))
         #
+        epoch += 1
         # if valid_accu > best_valid:
         #     best_valid = valid_accu
 
@@ -722,6 +729,8 @@ def pretrain_encoder(encoder, optimizer,
             loss.data[0],
             valid_accu
         ))
+
+        epoch += 1
 
         if valid_accu > best_valid:
             best_valid = valid_accu
