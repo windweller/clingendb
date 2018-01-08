@@ -335,6 +335,9 @@ class SampleGenerator(nn.Module):
         # encoder_loss should be just a number, used as reward: loss.data
         # return a policy-gradient style loss here
 
+        # need to be detached from previous graph
+        encoder_loss_vec = encoder_loss_vec.detach()
+
         # z_mask_probs is still a PyTorch variable
         sparsity_cost, vec_sparsity_cost = self.compute_sparsity_penalty(z_mask, args.sparsity, args.coherent)
 
@@ -570,16 +573,16 @@ def train_model(model, optimizer, train_iter, valid_iter, max_epoch):
 
 
         valid_accu = eval_model(model, valid_iter)
-        # sys.stdout.write("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
-        #     epoch,
-        #     optimizer.param_groups[0]['lr'],
-        #     loss.data[0],
-        #     valid_accu
-        # ))
-        #
+        sys.stdout.write("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
+            epoch,
+            optimizer.param_groups[0]['lr'],
+            gen_cost_logpz.data[0],
+            valid_accu
+        ))
+
         epoch += 1
-        # if valid_accu > best_valid:
-        #     best_valid = valid_accu
+        if valid_accu > best_valid:
+            best_valid = valid_accu
 
         sys.stdout.write("\n")
 
