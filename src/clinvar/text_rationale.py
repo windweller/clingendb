@@ -31,10 +31,6 @@ import sys
 reload(sys)
 sys.setdefaultencoding('utf-8')
 
-logging.basicConfig(format='[%(asctime)s] %(levelname)s: %(message)s',
-                    datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 argparser = argparse.ArgumentParser(sys.argv[0], conflict_handler='resolve')
 argparser.add_argument("--dataset", type=str, default='merged', help="merged|sub_sum, merged is the better one")
 argparser.add_argument("--batch_size", "--batch", type=int, default=32)
@@ -59,12 +55,10 @@ argparser.add_argument("--emb_update", action="store_true", help="update embeddi
 argparser.add_argument("--pretrain", action="store_true", help="pretrain encoder, and update embedding")
 argparser.add_argument("--max_pool", action="store_true", help="use max-pooling")
 argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
-argparser.add_argument("--concrete", action="store_true", help="use concrete distribution instead")
 argparser.add_argument("--update_gen_only", action="store_true", help="During 2nd phase, only update generator, not encoder")
 argparser.add_argument("--bidir", action="store_true", help="whether to use bidrectional LSTM or not")
 
 args = argparser.parse_args()
-print (args)
 
 VERY_NEGATIVE_NUMBER = -1e30
 
@@ -78,8 +72,19 @@ use_cuda = torch.cuda.is_available()
 if use_cuda:
     torch.cuda.manual_seed_all(args.seed)
 
-cross_ent = nn.CrossEntropyLoss()
+"""
+Logging
+"""
+logging.basicConfig(format='[%(asctime)s] %(levelname)s: %(message)s',
+                    datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+logger = logging.getLogger(__name__)
 
+if not os.path.exists(args.run_dir):
+    os.makedirs(args.run_dir)
+file_handler = logging.FileHandler("{0}/log.txt".format(args.run_dir))
+logging.getLogger().addHandler(file_handler)
+
+logger.info(args)
 
 def move_to_cuda(th_var):
     if torch.cuda.is_available():
@@ -147,9 +152,14 @@ class Encoder(nn.Module):
         batch_size = masks.shape[1]
         for i in range(batch_size):
             t, m = inputs[:, i], z_mask[:, i]
-            new_t = torch.masked_select(t, m)
-            tok_new_t = TEXT.reverse(new_t.data.view(-1, 1))
-            list_input.append(TEXT.preprocess(tok_new_t[0]))
+            # need to handle when mask is all 0...
+            # we just ignore it, and not append to list...batch_size can change :)
+            if len(torch.nonzero(m)) == 0:
+                list_input.append(TEXT.preprocessing(""))  # it selects nothing
+            else:
+                new_t = torch.masked_select(t, m)
+                tok_new_t = TEXT.reverse(new_t.data.view(-1, 1))
+                list_input.append(TEXT.preprocess(tok_new_t[0]))
 
         x, lengths = TEXT.process(list_input, device=args.gpu, train=True)
 
@@ -213,13 +223,6 @@ class Encoder(nn.Module):
         loss_vec = self.cross_ent_loss_vec(preds, y_labels)
         loss = torch.mean(loss_vec)
         return loss, loss_vec
-
-    # def get_encoder_loss(self, inputs, lengths, y_labels, z_mask=None):
-    #     # called by encoder pretraining
-    #     preds = self.encode(inputs, lengths, z_mask)
-    #     loss_vec = self.cross_ent_loss_vec(preds, y_labels)
-    #     loss = torch.mean(loss_vec)
-    #     return loss
 
     def get_loss(self, inputs, lengths, z_masks, y_labels):
         # run through the encoder itself, get loss, use as reward for generator training
@@ -354,30 +357,6 @@ class SampleGenerator(nn.Module):
 
         return cost_logpz, generator_cost, sparsity_cost
 
-
-class ConcreteGenerator(nn.Module):
-    def __init__(self, emb_dim=100, hidden_size=256, depth=1):
-        super(ConcreteGenerator, self).__init__()
-        self.hidden_size = hidden_size
-        self.drop = nn.Dropout(args.dropout)
-        self.generator = nn.LSTM(
-            emb_dim,
-            hidden_size,
-            depth,
-            dropout=args.dropout,
-            bidirectional=False)
-
-        d_out = hidden_size * 2 if args.bidir else hidden_size
-
-    def forward(self, input):
-        # takes in x, output z
-        pass
-
-    def compute_sparsity_penalty(self, z_probs, sparsity=4e-4, coherent=2):
-        # use gumbel-softmax to sample masks
-        pass
-
-
 class Model(nn.Module):
     def __init__(self, vocab, emb_dim=100, hidden_size=256, depth=1, nclasses=5):
         # this model generates rationale / interpretable parts when trained
@@ -391,10 +370,7 @@ class Model(nn.Module):
 
         # build the encoder
         self.encoder = Encoder(vocab, self.embed, emb_dim, hidden_size, depth, nclasses)
-        if args.concrete:
-            self.generator = ConcreteGenerator()
-        else:
-            self.generator = SampleGenerator(self.embed, emb_dim, hidden_size, depth)
+        self.generator = SampleGenerator(self.embed, emb_dim, hidden_size, depth)
 
     def forward(self, inputs, lengths=None):
         # this should run through one trial, return loss/cost, all materials to training loop
@@ -775,7 +751,7 @@ def init_emb(vocab, init="randn", num_special_toks=2, mode="unk"):
             num_non_zero += 1
             running_norm += torch.norm(emb_vectors[i])
         total_words += 1
-    print("average GloVE norm is {}, number of known words are {}, total number of words are {}".format(
+    logger.info("average GloVE norm is {}, number of known words are {}, total number of words are {}".format(
         running_norm / num_non_zero, num_non_zero, total_words))
 
 
@@ -790,8 +766,8 @@ if __name__ == '__main__':
         label_list[v] = k
 
     labels = label_list
-    print("available labels: ")
-    print(labels)
+    logger.info("available labels: ")
+    logger.info(labels)
 
     TEXT = data.ReversibleField(sequential=True, lower=True, include_lengths=True)
     LABEL = data.Field(sequential=False, use_vocab=False)
