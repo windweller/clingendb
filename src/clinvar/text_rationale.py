@@ -129,7 +129,7 @@ class Encoder(nn.Module):
         # according to mask z
         # return extracted_input, modified_length
 
-        masks = inputs.data != self.vocab.stoi['<pad>']
+        masks = inputs != self.vocab.stoi['<pad>']
         if args.gpu == -1:
             masks = masks.type(torch.FloatTensor)
         else:
@@ -137,7 +137,6 @@ class Encoder(nn.Module):
 
         # Note that z_mask needs to also be on cuda...which it should be
         # also z_mask is a variable...
-        z_mask = z_mask.data
         z_mask = masks * z_mask
 
         list_input = []
@@ -449,15 +448,20 @@ def eval_model(model, valid_iter, save_pred=False):
     for data in valid_iter:
         (x, x_lengths), y = data.Text, data.Description
 
-        output = encoder.encode(x, x_lengths)
-        loss = criterion(output, y)
+        # run the whole model forward mode
+        inputs, output, z_mask, sparsity_coherence_cost = model.forward(x, x_lengths)
+        loss = model.encoder.get_encoder_loss(output, y)
+
+        # output = encoder.encode(x, x_lengths)
+        # loss = criterion(output, y)
 
         total_loss += loss.data[0] * x.size(1)  # because cross-ent by default is average
         preds = output.data.max(1)[1]  # already taking max...I think, max returns a tuple
         correct += preds.eq(y.data).cpu().sum()
         cnt += y.numel()
 
-        # run the whole model forward mode
+        # TODO: mask the input again, store them like tuple
+        # TODO: (input, extracted_input, pred, label)
 
         orig_text = TEXT.reverse(x.data)
         all_orig_texts.extend(orig_text)
@@ -557,7 +561,7 @@ def train_model(model, optimizer, train_iter, valid_iter, max_epoch):
                                                                                 enc_loss.data[0], sparsity_cost.data[0]))
 
 
-        # valid_accu = eval_model(model, valid_iter)
+        valid_accu = eval_model(model, valid_iter)
         # sys.stdout.write("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
         #     epoch,
         #     optimizer.param_groups[0]['lr'],
