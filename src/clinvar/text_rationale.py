@@ -136,6 +136,8 @@ class Encoder(nn.Module):
             masks = masks.type(torch.cuda.FloatTensor)
 
         # Note that z_mask needs to also be on cuda...which it should be
+        # also z_mask is a variable...
+        z_mask = z_mask.data
         z_mask = masks * z_mask
 
         list_input = []
@@ -455,6 +457,8 @@ def eval_model(model, valid_iter, save_pred=False):
         correct += preds.eq(y.data).cpu().sum()
         cnt += y.numel()
 
+        # run the whole model forward mode
+
         orig_text = TEXT.reverse(x.data)
         all_orig_texts.extend(orig_text)
 
@@ -513,6 +517,8 @@ def train_model(model, optimizer, train_iter, valid_iter, max_epoch):
     # all loss/costs are written into Encoder and Generator...so should be easy!
 
     model.train()
+    model.encoder.train()
+    model.generator.train()
 
     exp_cost = None
     iter = 0
