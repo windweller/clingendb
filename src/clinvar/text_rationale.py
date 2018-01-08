@@ -139,6 +139,9 @@ class Encoder(nn.Module):
         # also z_mask is a variable...
         z_mask = masks * z_mask
 
+        # torch.masked_select needs ByteTensor
+        z_mask = z_mask.type(torch.cuda.ByteTensor)
+
         list_input = []
         # iterate through the batch
         batch_size = masks.shape[1]
@@ -336,7 +339,7 @@ class SampleGenerator(nn.Module):
         sparsity_cost, vec_sparsity_cost = self.compute_sparsity_penalty(z_mask, args.sparsity, args.coherent)
 
         # (seq_len * batch)
-        logpz = self.cross_ent_loss_vec(z_mask_logits.view(-1, 2), z_mask.view(-1).type(torch.LongTensor))
+        logpz = self.cross_ent_loss_vec(z_mask_logits.view(-1, 2), z_mask.view(-1).type(torch.cuda.LongTensor))
         logpz = logpz.view(z_mask.size())
 
         cost_vec = encoder_loss_vec + vec_sparsity_cost
@@ -403,9 +406,9 @@ class Model(nn.Module):
         sparsity_coherence_cost, _ = self.generator.compute_sparsity_penalty(z_mask, args.sparsity, args.coherent)
 
         # encoder (pretrained or not) consumes the mask
-        preds = self.encoder.encode(inputs, lengths, z_mask)
+        output = self.encoder.encode(inputs, lengths, z_mask)
 
-        return inputs, preds, z_mask, sparsity_coherence_cost
+        return output, z_mask, sparsity_coherence_cost
 
     def get_masked_input(self, inputs, z_mask):
         # in evaluation, after calling forward(), use this to get the actual extracted inputs
@@ -445,11 +448,12 @@ def eval_model(model, valid_iter, save_pred=False):
     all_preds = []
     all_y_labels = []
     all_orig_texts = []
+    all_extracted_texts = []
     for data in valid_iter:
         (x, x_lengths), y = data.Text, data.Description
 
         # run the whole model forward mode
-        inputs, output, z_mask, sparsity_coherence_cost = model.forward(x, x_lengths)
+        output, z_mask, sparsity_coherence_cost = model.forward(x, x_lengths)
         loss = model.encoder.get_encoder_loss(output, y)
 
         # output = encoder.encode(x, x_lengths)
@@ -462,6 +466,10 @@ def eval_model(model, valid_iter, save_pred=False):
 
         # TODO: mask the input again, store them like tuple
         # TODO: (input, extracted_input, pred, label)
+        extracted_input, _ = model.encoder.extract_input(x, z_mask)
+
+        extracted_text = TEXT.reverse(extracted_input.data)
+        all_extracted_texts.extend(extracted_text)
 
         orig_text = TEXT.reverse(x.data)
         all_orig_texts.extend(orig_text)
@@ -501,13 +509,13 @@ def eval_model(model, valid_iter, save_pred=False):
     if save_pred:
         import csv
         # we store things out, hopefully they are in correct order
-        with open(pjoin(args.run_dir, 'rationale_confusion_test.csv'), 'wb') as csvfile:
-            fieldnames = ['preds', 'labels', 'text']
+        with open(pjoin(args.run_dir, 'rationale_confusion_results_test.csv'), 'wb') as csvfile:
+            fieldnames = ['preds', 'labels', 'text', 'extracted']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
 
-            for pair in zip(all_preds, all_y_labels, all_orig_texts):
-                writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2]})
+            for pair in zip(all_preds, all_y_labels, all_orig_texts, all_extracted_texts):
+                writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2], 'extracted': pair[3]})
 
         with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
             json.dump(label_list, f)
