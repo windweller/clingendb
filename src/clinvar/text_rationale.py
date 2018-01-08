@@ -614,8 +614,10 @@ def eval_encoder(encoder, valid_iter, save_pred=False):
     all_orig_texts = []
     for data in valid_iter:
         (x, x_lengths), y = data.Text, data.Description
-        output = encoder(x)
+
+        output = encoder.encode(x, x_lengths)
         loss = criterion(output, y)
+
         total_loss += loss.data[0] * x.size(1)
         preds = output.data.max(1)[1]  # already taking max...I think, max returns a tuple
         correct += preds.eq(y.data).cpu().sum()
@@ -690,7 +692,7 @@ def pretrain_encoder(encoder, optimizer,
             encoder.zero_grad()  # clear out the gradients
             (x, x_lengths), y = data.Text, data.Description
 
-            output = encoder(x)
+            output = encoder.encode(x, x_lengths)
 
             loss = criterion(output, y)
             loss.backward()
