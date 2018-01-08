@@ -102,7 +102,7 @@ def to_list(t_var):
 
 
 class Encoder(nn.Module):
-    def __init__(self, vocab, emb_dim=100, hidden_size=256, depth=1, nclasses=5):
+    def __init__(self, vocab, embed, emb_dim=100, hidden_size=256, depth=1, nclasses=5):
         super(Encoder, self).__init__()
         self.hidden_size = hidden_size
         self.drop = nn.Dropout(args.dropout)
@@ -116,8 +116,7 @@ class Encoder(nn.Module):
 
         d_out = hidden_size
         self.out = nn.Linear(d_out, nclasses)
-        self.embed = nn.Embedding(len(vocab), emb_dim)
-        self.embed.weight.data.copy_(vocab.vectors)
+        self.embed = embed
         self.vocab = vocab
 
         self.cross_ent_loss_vec = nn.CrossEntropyLoss(reduce=False)
@@ -227,7 +226,7 @@ class Encoder(nn.Module):
 
 
 class SampleGenerator(nn.Module):
-    def __init__(self, emb_dim=100, hidden_size=256, depth=1):
+    def __init__(self, embed, emb_dim=100, hidden_size=256, depth=1):
         # SampleGenerator uses policy gradient to train
         # the generator
         super(SampleGenerator, self).__init__()
@@ -239,6 +238,7 @@ class SampleGenerator(nn.Module):
             depth,
             dropout=args.dropout,
             bidirectional=True)
+        self.embed = embed
 
         # we still use multiclass softmax loss
         if not args.sigmoid_loss:
@@ -364,12 +364,18 @@ class Model(nn.Module):
         # this model generates rationale / interpretable parts when trained
         # this is the entire model, not just encoder
         super(Model, self).__init__()
+
+        # build embedding layer (shared)
+        self.embed = nn.Embedding(len(vocab), emb_dim)
+        self.embed.weight.data.copy_(vocab.vectors)
+        self.embed.weight.requires_grad = True if args.emb_update else False
+
         # build the encoder
-        self.encoder = Encoder(vocab, emb_dim, hidden_size, depth, nclasses)
+        self.encoder = Encoder(vocab, self.embed, emb_dim, hidden_size, depth, nclasses)
         if args.concrete:
             self.generator = ConcreteGenerator()
         else:
-            self.generator = SampleGenerator(emb_dim, hidden_size, depth)
+            self.generator = SampleGenerator(self.embed, emb_dim, hidden_size, depth)
 
     def forward(self, input, lengths=None):
         # this should run through one trial, return loss/cost, all materials to training loop
@@ -667,11 +673,6 @@ def pretrain_encoder(encoder, optimizer,
             best_valid = valid_accu
 
         sys.stdout.write("\n")
-
-
-def tokenizer(text):  # create a tokenizer function
-    return [tok.text for tok in spacy_en.tokenizer(text)]
-
 
 def init_emb(vocab, init="randn", num_special_toks=2, mode="unk"):
     # we can try randn or glorot
