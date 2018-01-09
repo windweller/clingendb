@@ -55,7 +55,6 @@ argparser.add_argument("--sparsity", type=float, default=4e-4, help="{2e-4, 3e-4
 argparser.add_argument("--coherent", type=float, default=2.0, help="paper did 2 * lambda1")
 
 args = argparser.parse_args()
-print (args)
 
 VERY_NEGATIVE_NUMBER = -1e30
 
@@ -311,16 +310,16 @@ def eval_model(model, valid_iter, save_pred=False):
     if save_pred:
         import csv
         # we store things out, hopefully they are in correct order
-        with open('./confusion_test.csv', 'wb') as csvfile:
+        with open(pjoin(args.run_dir, 'confusion_test.csv'), 'wb') as csvfile:
             fieldnames = ['preds', 'labels', 'text']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
 
             for pair in zip(all_preds, all_y_labels, all_orig_texts):
                 writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2]})
-        with open('./attn_map.json', 'wb') as f:
+        with open(pjoin(args.run_dir,'attn_map.json'), 'wb') as f:
             json.dump([all_preds, all_y_labels, all_orig_texts, all_keys], f)
-        with open('./label_map.txt', 'wb') as f:
+        with open(pjoin(args.run_dir,'label_map.txt'), 'wb') as f:
             json.dump(label_list, f)
 
     model.train()
@@ -404,8 +403,8 @@ if __name__ == '__main__':
         label_list[v] = k
 
     labels = label_list
-    print("available labels: ")
-    print(labels)
+    logger.info("available labels: ")
+    logger.info(labels)
 
     TEXT = data.ReversibleField(sequential=True, tokenize=tokenizer,
                                 lower=True, include_lengths=True)
@@ -455,4 +454,4 @@ if __name__ == '__main__':
                  max_epoch=5)
 
     test_accu, test_sparsity_coherence_cost = eval_model(model, test_iter, save_pred=True)
-    print("final test accu: {}, test sparsity cost: {}".format(test_accu, test_sparsity_coherence_cost))
+    logger.info("final test accu: {}, test sparsity cost: {}".format(test_accu, test_sparsity_coherence_cost))
