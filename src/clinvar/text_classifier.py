@@ -176,7 +176,7 @@ class Model(nn.Module):
 
             batch_mask = self.create_mask(lengths)
 
-            masked_keys = keys * Variable(batch_mask)  # taking masked parts to be 0
+            masked_keys = keys * Variable(move_to_cuda(batch_mask))  # taking masked parts to be 0
             sparsity_coherence_cost = self.compute_sparsity_penalty(masked_keys)
 
 
@@ -432,7 +432,6 @@ if __name__ == '__main__':
     vocab = TEXT.vocab
 
     # so now all you need to do is to create an iterator
-    print("processed")
 
     model = Model(vocab, nclasses=len(labels), scaled_dot_attn=args.attn)
     if torch.cuda.is_available():
