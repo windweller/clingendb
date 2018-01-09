@@ -49,10 +49,12 @@ argparser.add_argument("--run_dir", type=str, default='./exp')
 argparser.add_argument("--seed", type=int, default=123)
 argparser.add_argument("--gpu", type=int, default=-1)
 argparser.add_argument("--attn", action="store_true", help="by using attention to generate some interpretation")
-argparser.add_argument("--sparsity_reg", action="store_true", help="apply L1 and diff regularization to attention logits")
+argparser.add_argument("--sparsity_reg", action="store_true",
+                       help="apply L1 and diff regularization to attention logits")
 argparser.add_argument("--emb_update", action="store_true", help="update embedding")
 argparser.add_argument("--sparsity", type=float, default=4e-4, help="{2e-4, 3e-4, 4e-4}")
 argparser.add_argument("--coherent", type=float, default=2.0, help="paper did 2 * lambda1")
+argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
 
 args = argparser.parse_args()
 
@@ -179,7 +181,6 @@ class Model(nn.Module):
 
             masked_keys = keys * Variable(move_to_cuda(batch_mask))  # taking masked parts to be 0
             sparsity_coherence_cost = self.compute_sparsity_penalty(masked_keys)
-
 
             exp_maksed_keys = self.exp_mask(keys, batch_mask)
 
@@ -317,9 +318,9 @@ def eval_model(model, valid_iter, save_pred=False):
 
             for pair in zip(all_preds, all_y_labels, all_orig_texts):
                 writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2]})
-        with open(pjoin(args.run_dir,'attn_map.json'), 'wb') as f:
+        with open(pjoin(args.run_dir, 'attn_map.json'), 'wb') as f:
             json.dump([all_preds, all_y_labels, all_orig_texts, all_keys], f)
-        with open(pjoin(args.run_dir,'label_map.txt'), 'wb') as f:
+        with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
             json.dump(label_list, f)
 
     model.train()
@@ -366,8 +367,15 @@ def train_module(model, optimizer,
                 exp_cost = 0.99 * exp_cost + 0.01 * loss.data[0]
 
             if iter % 100 == 0:
-                logging.info("iter {} lr={} train_loss={} exp_cost={} sparsity_coherence_cost={} \n".format(iter, optimizer.param_groups[0]['lr'],
-                                                                                 loss.data[0], exp_cost, sparsity_coherence_cost.data[0]))
+                logging.info("iter {} lr={} train_loss={} exp_cost={} sparsity_coherence_cost={} \n".format(iter,
+                                                                                                            optimizer.param_groups[
+                                                                                                                0][
+                                                                                                                'lr'],
+                                                                                                            loss.data[
+                                                                                                                0],
+                                                                                                            exp_cost,
+                                                                                                            sparsity_coherence_cost.data[
+                                                                                                                0]))
 
         valid_accu, valid_sparsity_coherence_cost = eval_model(model, valid_iter)
         sys.stdout.write("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f} valid_sparsity_cost={:6f}\n".format(
@@ -386,6 +394,27 @@ def train_module(model, optimizer,
 
 def tokenizer(text):  # create a tokenizer function
     return [tok.text for tok in spacy_en.tokenizer(text)]
+
+
+def init_emb(vocab, init="randn", num_special_toks=2, mode="unk"):
+    # we can try randn or glorot
+    # mode="unk"|"all", all means initialize everything
+    emb_vectors = vocab.vectors
+    sweep_range = len(vocab)
+    running_norm = 0.
+    num_non_zero = 0
+    total_words = 0
+    for i in range(num_special_toks, sweep_range):
+        if len(emb_vectors[i, :].nonzero()) == 0:
+            # std = 0.5 is based on the norm of average GloVE word vectors
+            if init == "randn":
+                torch.nn.init.normal(emb_vectors[i], mean=0, std=0.5)
+        else:
+            num_non_zero += 1
+            running_norm += torch.norm(emb_vectors[i])
+        total_words += 1
+    logger.info("average GloVE norm is {}, number of known words are {}, total number of words are {}".format(
+        running_norm / num_non_zero, num_non_zero, total_words))
 
 
 if __name__ == '__main__':
@@ -431,6 +460,9 @@ if __name__ == '__main__':
     # if not labeling sort=False, then you are sorting through valid and test
 
     vocab = TEXT.vocab
+
+    if args.rand_unk:
+        init_emb(vocab, init="randn")
 
     # so now all you need to do is to create an iterator
 
