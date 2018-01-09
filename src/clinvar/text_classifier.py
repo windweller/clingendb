@@ -84,7 +84,7 @@ logger.info(args)
 
 def move_to_cuda(th_var):
     if torch.cuda.is_available():
-        return th_var.cuda()
+        return th_var.cuda(args.gpu)
     else:
         return th_var
 
