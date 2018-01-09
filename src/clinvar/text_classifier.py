@@ -29,10 +29,6 @@ import sys
 reload(sys)
 sys.setdefaultencoding('utf-8')
 
-logging.basicConfig(format='[%(asctime)s] %(levelname)s: %(message)s',
-                    datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 argparser = argparse.ArgumentParser(sys.argv[0], conflict_handler='resolve')
 argparser.add_argument("--dataset", type=str, default='merged', help="merged|sub_sum, merged is the better one")
 argparser.add_argument("--batch_size", "--batch", type=int, default=32)
@@ -49,10 +45,12 @@ argparser.add_argument("--lr", type=float, default=1.0)
 # argparser.add_argument("--lr_decay_epoch", type=int, default=175)
 # argparser.add_argument("--weight_decay", type=float, default=1e-5)
 argparser.add_argument("--clip_grad", type=float, default=5)
-argparser.add_argument("--run_dir", type=str, default='./sandbox')
+argparser.add_argument("--run_dir", type=str, default='./exp')
 argparser.add_argument("--seed", type=int, default=123)
 argparser.add_argument("--gpu", type=int, default=-1)
 argparser.add_argument("--attn", action="store_true", help="by using attention to generate some interpretation")
+argparser.add_argument("--sparsity_reg", action="store_true", help="apply L1 and diff regularization to attention logits")
+argparser.add_argument("--emb_update", action="store_true", help="update embedding")
 
 args = argparser.parse_args()
 print (args)
@@ -68,6 +66,20 @@ np.random.seed(args.seed)
 use_cuda = torch.cuda.is_available()
 if use_cuda:
     torch.cuda.manual_seed_all(args.seed)
+
+"""
+Logging
+"""
+logging.basicConfig(format='[%(asctime)s] %(levelname)s: %(message)s',
+                    datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+if not os.path.exists(args.run_dir):
+    os.makedirs(args.run_dir)
+file_handler = logging.FileHandler("{0}/log.txt".format(args.run_dir))
+logging.getLogger().addHandler(file_handler)
+
+logger.info(args)
 
 
 def move_to_cuda(th_var):
@@ -95,13 +107,11 @@ class Model(nn.Module):
         self.out = nn.Linear(d_out * attn_head, nclasses)
         self.embed = nn.Embedding(len(vocab), emb_dim)
         self.embed.weight.data.copy_(vocab.vectors)
-        # self.embed.weight.requires_grad = False  # no training on word embedding?
+        self.embed.weight.requires_grad = True if args.emb_update else False
+
         if self.scaled_dot_attn:
             logging.info("adding scaled dot attention matrix")
             self.key_w = nn.Parameter(torch.randn(hidden_size, hidden_size))
-            # self.keys_w = []
-            # for _ in range(attn_head):
-            #     self.keys_w.append(nn.Parameter(torch.randn(hidden_size, hidden_size)))
 
     def create_mask(self, lengths):
         # lengths would be a python list here, not a Tensor
@@ -125,6 +135,19 @@ class Model(nn.Module):
         exp_mask = Variable((1 - mask) * VERY_NEGATIVE_NUMBER, requires_grad=False)
         return val + move_to_cuda(exp_mask)
 
+    def compute_sparsity_penalty(self, attn_logits):
+        # attn_logits: [seq_len, batch_size]
+        #
+        coherent_factor = args.sparsity * args.coherent
+
+        # this is the l1 loss
+        z_sum = torch.sum(torch.abs(attn_logits), dim=0)  # temporal dimension
+        z_diff = torch.abs(attn_logits[1:] - attn_logits[:-1]).sum(dim=0)
+
+        sparsity_coherence_cost = torch.mean(z_sum) * args.sparsity + torch.mean(z_diff) * coherent_factor
+
+        return sparsity_coherence_cost
+
     def forward(self, input, lengths=None):
         embed_input = self.embed(input)
 
@@ -139,7 +162,7 @@ class Model(nn.Module):
             output = unpack(output)[0]
 
         if self.temp_max_pool:
-            output = torch.max(output, 0)[0].squeeze(0)
+            hidden = torch.max(output, 0)[0].squeeze(0)
         elif self.scaled_dot_attn:
             # add scaled dot product attention
 
@@ -152,22 +175,22 @@ class Model(nn.Module):
             keys = torch.sum(keys.view(1, -1, self.hidden_size) * output, 2)
 
             batch_mask = self.create_mask(lengths)
-            maksed_keys = self.exp_mask(keys, batch_mask)
+
+            masked_keys = keys * Variable(batch_mask)  # taking masked parts to be 0
+            sparsity_coherence_cost = self.compute_sparsity_penalty(masked_keys)
+
+
+            exp_maksed_keys = self.exp_mask(keys, batch_mask)
 
             # (time, batch_size) -> (batch_size, time)
-            keys = torch.nn.Softmax()(torch.transpose(maksed_keys, 0, 1))  # boradcast?
+            keys = torch.nn.Softmax()(torch.transpose(exp_maksed_keys, 0, 1))  # boradcast?
             keys_view = torch.transpose(keys, 0, 1).contiguous().view(output.size()[0], output.size()[1], 1)
             # (time, batch_size, 1) * (time, batch_size, hidden_state)
             output = torch.sum(output * keys_view, 0)
 
-            # TODO: need to find a way to store multiple keys
-            # TODO: zip them (pair them up)
-            return self.out(output), keys  # (batch_size, time)
-        else:
-            output = output[-1, :, :]  # concatenate 2 directions into 1
+            return self.out(output), keys, sparsity_coherence_cost  # (batch_size, time)
 
-        # output = self.drop(output)
-        return self.out(output)
+        return self.out(hidden)
 
 
 def get_multiclass_recall(preds, y_label):
@@ -224,6 +247,7 @@ def eval_model(model, valid_iter, save_pred=False):
     correct = 0.0
     cnt = 0
     total_loss = 0.0
+    total_sparsity_coherence_cost = 0.0
     total_labels_recall = None
 
     total_labels_prec = None
@@ -234,12 +258,15 @@ def eval_model(model, valid_iter, save_pred=False):
     for data in valid_iter:
         (x, x_lengths), y = data.Text, data.Description
         if args.attn:
-            output, keys = model(x, x_lengths)
+            output, keys, sparsity_coherence_cost = model(x, x_lengths)
             all_keys.extend(keys.data.cpu().numpy().tolist())
         else:
             output = model(x)
         loss = criterion(output, y)
         total_loss += loss.data[0] * x.size(1)
+
+        total_sparsity_coherence_cost += total_sparsity_coherence_cost.data[0] * x.size(1)
+
         preds = output.data.max(1)[1]  # already taking max...I think, max returns a tuple
         correct += preds.eq(y.data).cpu().sum()
         cnt += y.numel()
@@ -295,7 +322,7 @@ def eval_model(model, valid_iter, save_pred=False):
             json.dump(label_list, f)
 
     model.train()
-    return correct / cnt
+    return correct / cnt, total_sparsity_coherence_cost / cnt
 
 
 def train_module(model, optimizer,
@@ -317,12 +344,16 @@ def train_module(model, optimizer,
             (x, x_lengths), y = data.Text, data.Description
 
             if args.attn:
-                output, keys = model(x, x_lengths)
+                output, keys, sparsity_coherence_cost = model(x, x_lengths)
             else:
                 output = model(x)
 
             loss = criterion(output, y)
-            loss.backward()
+            if not args.sparsity_reg:
+                loss.backward()
+            else:
+                total_loss = loss + sparsity_coherence_cost
+                total_loss.backward()
 
             torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
 
@@ -334,15 +365,16 @@ def train_module(model, optimizer,
                 exp_cost = 0.99 * exp_cost + 0.01 * loss.data[0]
 
             if iter % 100 == 0:
-                logging.info("iter {} lr={} train_loss={} exp_cost={} \n".format(iter, optimizer.param_groups[0]['lr'],
-                                                                                 loss.data[0], exp_cost))
+                logging.info("iter {} lr={} train_loss={} exp_cost={} sparsity_coherence_cost={} \n".format(iter, optimizer.param_groups[0]['lr'],
+                                                                                 loss.data[0], exp_cost, sparsity_coherence_cost.data[0]))
 
-        valid_accu = eval_model(model, valid_iter)
-        sys.stdout.write("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
+        valid_accu, valid_sparsity_coherence_cost = eval_model(model, valid_iter)
+        sys.stdout.write("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f} valid_sparsity_cost={:6f}\n".format(
             epoch,
             optimizer.param_groups[0]['lr'],
             loss.data[0],
-            valid_accu
+            valid_accu,
+            valid_sparsity_coherence_cost
         ))
 
         if valid_accu > best_valid:
@@ -421,5 +453,5 @@ if __name__ == '__main__':
     train_module(model, optimizer, train_iter, val_iter, test_iter,
                  max_epoch=5)
 
-    test_accu = eval_model(model, test_iter, save_pred=True)
-    print("final test accu: {}".format(test_accu))
+    test_accu, test_sparsity_coherence_cost = eval_model(model, test_iter, save_pred=True)
+    print("final test accu: {}, test sparsity cost: {}".format(test_accu, test_sparsity_coherence_cost))
