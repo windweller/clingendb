@@ -428,6 +428,7 @@ def eval_model(model, valid_iter, save_pred=False):
     all_y_labels = []
     all_orig_texts = []
     all_extracted_texts = []
+
     for data in valid_iter:
         (x, x_lengths), y = data.Text, data.Description
 
@@ -468,6 +469,13 @@ def eval_model(model, valid_iter, save_pred=False):
             cumulate_multiclass_accuracy(total_labels_prec, labels_prec)
 
             # valid and tests can stop themselves
+
+    lengths_ratio = 0.
+    for i in range(len(all_orig_texts)):
+        lengths_ratio += len(all_extracted_texts[i]) / float(len(all_orig_texts[i]))
+    lengths_ratio /= len(all_orig_texts)
+
+    logger.info("average length ratio between extracted and original is: {}".format(lengths_ratio))
 
     multiclass_recall_msg = 'Multiclass Recall - '
     mean_multi_recall = get_mean_multiclass_accuracy(total_labels_recall)
