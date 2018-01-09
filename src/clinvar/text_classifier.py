@@ -51,6 +51,8 @@ argparser.add_argument("--gpu", type=int, default=-1)
 argparser.add_argument("--attn", action="store_true", help="by using attention to generate some interpretation")
 argparser.add_argument("--sparsity_reg", action="store_true", help="apply L1 and diff regularization to attention logits")
 argparser.add_argument("--emb_update", action="store_true", help="update embedding")
+argparser.add_argument("--sparsity", type=float, default=4e-4, help="{2e-4, 3e-4, 4e-4}")
+argparser.add_argument("--coherent", type=float, default=2.0, help="paper did 2 * lambda1")
 
 args = argparser.parse_args()
 print (args)
