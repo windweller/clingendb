@@ -29,10 +29,6 @@ import sys
 reload(sys)
 sys.setdefaultencoding('utf-8')
 
-logging.basicConfig(format='[%(asctime)s] %(levelname)s: %(message)s',
-                    datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 argparser = argparse.ArgumentParser(sys.argv[0], conflict_handler='resolve')
 argparser.add_argument("--dataset", type=str, default='merged', help="merged|sub_sum, merged is the better one")
 argparser.add_argument("--batch_size", "--batch", type=int, default=32)
@@ -46,12 +42,11 @@ argparser.add_argument("--rnn_dropout", type=float, default=0.2,
 argparser.add_argument("--depth", type=int, default=1)
 argparser.add_argument("--lr", type=float, default=1.0)
 argparser.add_argument("--clip_grad", type=float, default=5)
-argparser.add_argument("--run_dir", type=str, default='./sandbox')
+argparser.add_argument("--run_dir", type=str, default='./exp')
 argparser.add_argument("--seed", type=int, default=123)
 argparser.add_argument("--gpu", type=int, default=-1)
 
 args = argparser.parse_args()
-print (args)
 
 VERY_NEGATIVE_NUMBER = -1e30
 
@@ -65,6 +60,19 @@ use_cuda = torch.cuda.is_available()
 if use_cuda:
     torch.cuda.manual_seed_all(args.seed)
 
+"""
+Logging
+"""
+logging.basicConfig(format='[%(asctime)s] %(levelname)s: %(message)s',
+                    datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+if not os.path.exists(args.run_dir):
+    os.makedirs(args.run_dir)
+file_handler = logging.FileHandler("{0}/log.txt".format(args.run_dir))
+logging.getLogger().addHandler(file_handler)
+
+logger.info(args)
 
 def move_to_cuda(th_var):
     if torch.cuda.is_available():
@@ -280,17 +288,18 @@ def eval_model(model, valid_iter, save_pred=False):
 
     if save_pred:
         import csv
-        with open('./confusion_test.csv', 'wb') as csvfile:
-            fieldnames = ['preds', 'labels', 'text']
+        with open(pjoin(args.run_dir, 'confusion_test.csv'), 'wb') as csvfile:
+            fieldnames = ['preds', 'labels', 'text', 'label_vis']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
 
             for pair in zip(all_preds, all_y_labels, all_orig_texts, all_text_vis):
                 writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2], 'label_vis': pair[3]})
 
-        # compute max pool things in here
+        with open(pjoin(args.run_dir, 'label_vis_map.json'), 'wb') as f:
+            json.dump([all_preds, all_y_labels, all_orig_texts, all_text_vis], f)
 
-        with open('./label_map.txt', 'wb') as f:
+        with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
             json.dump(label_list, f)
 
     model.train()
@@ -361,8 +370,8 @@ if __name__ == '__main__':
         label_list[v] = k
 
     labels = label_list
-    print("available labels: ")
-    print(labels)
+    logger.info("available labels: ")
+    logger.info(labels)
 
     TEXT = data.ReversibleField(sequential=True, lower=True, include_lengths=True)
     LABEL = data.Field(sequential=False, use_vocab=False)
@@ -409,4 +418,4 @@ if __name__ == '__main__':
                  max_epoch=5)
 
     test_accu = eval_model(model, test_iter, save_pred=True)
-    print("final test accu: {}".format(test_accu))
+    logger.info("final test accu: {}".format(test_accu))
