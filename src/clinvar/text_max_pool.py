@@ -118,11 +118,10 @@ class Model(nn.Module):
         if lengths is not None:
             output = unpack(output)[0]
 
-        output = torch.max(output, 0)[0].squeeze(0)
-
         return output
 
-    def get_logits(self, output):
+    def get_logits(self, output_vec):
+        output = torch.max(output_vec, 0)[0].squeeze(0)
         return self.out(output)
 
     def get_softmax_weight(self):
