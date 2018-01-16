@@ -169,7 +169,7 @@ class Model(nn.Module):
         for b in range(batch_size):
             for d in range(self.hidden_size):
                 # get the time_step of each dim
-                time_step = indices[b, d]
+                time_step = indices.data.cpu()[b, d]
                 assignment_dist[b, time_step, :] = n_weight_map.data.cpu()[b, :, d]
 
         return assignment_dist
