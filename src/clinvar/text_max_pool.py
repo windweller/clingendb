@@ -45,6 +45,7 @@ argparser.add_argument("--clip_grad", type=float, default=5)
 argparser.add_argument("--run_dir", type=str, default='./exp')
 argparser.add_argument("--seed", type=int, default=123)
 argparser.add_argument("--gpu", type=int, default=-1)
+argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
 
 args = argparser.parse_args()
 
@@ -358,6 +359,25 @@ def train_module(model, optimizer,
 
         sys.stdout.write("\n")
 
+def init_emb(vocab, init="randn", num_special_toks=2):
+    # we can try randn or glorot
+    # mode="unk"|"all", all means initialize everything
+    emb_vectors = vocab.vectors
+    sweep_range = len(vocab)
+    running_norm = 0.
+    num_non_zero = 0
+    total_words = 0
+    for i in range(num_special_toks, sweep_range):
+        if len(emb_vectors[i, :].nonzero()) == 0:
+            # std = 0.5 is based on the norm of average GloVE word vectors
+            if init == "randn":
+                torch.nn.init.normal(emb_vectors[i], mean=0, std=0.5)
+        else:
+            num_non_zero += 1
+            running_norm += torch.norm(emb_vectors[i])
+        total_words += 1
+    logger.info("average GloVE norm is {}, number of known words are {}, total number of words are {}".format(
+        running_norm / num_non_zero, num_non_zero, total_words))
 
 if __name__ == '__main__':
 
@@ -397,6 +417,9 @@ if __name__ == '__main__':
     # if not labeling sort=False, then you are sorting through valid and test
 
     vocab = TEXT.vocab
+
+    if args.rand_unk:
+        init_emb(vocab, init="randn")
 
     model = Model(vocab, nclasses=len(labels))
     if torch.cuda.is_available():
