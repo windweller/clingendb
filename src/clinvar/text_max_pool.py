@@ -46,6 +46,7 @@ argparser.add_argument("--run_dir", type=str, default='./exp')
 argparser.add_argument("--seed", type=int, default=123)
 argparser.add_argument("--gpu", type=int, default=-1)
 argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
+argparser.add_argument("--emb_update", action="store_true", help="update embedding")
 
 args = argparser.parse_args()
 
@@ -98,7 +99,7 @@ class Model(nn.Module):
         self.out = nn.Linear(d_out, nclasses, bias=False)
         self.embed = nn.Embedding(len(vocab), emb_dim)
         self.embed.weight.data.copy_(vocab.vectors)
-        # self.embed.weight.requires_grad = False  # no training on word embedding?
+        self.embed.weight.requires_grad = True if args.emb_update else False
 
     def forward(self, input, lengths=None):
         output_vecs = self.get_vectors(input, lengths)
