@@ -244,7 +244,7 @@ def eval_model(model, valid_iter, save_pred=False):
 
         # (batch_size, time_step, label_dist)
         label_map = model.get_visualization_dict(output_vecs)
-        all_text_vis.extend(label_map.data.cpu().numpy().tolist())
+        all_text_vis.extend(label_map.numpy().tolist())
 
         loss = criterion(output, y)
         total_loss += loss.data[0] * x.size(1)
