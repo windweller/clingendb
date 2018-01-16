@@ -325,10 +325,7 @@ def train_module(model, optimizer,
             model.zero_grad()
             (x, x_lengths), y = data.Text, data.Description
 
-            if args.attn:
-                output, keys = model(x, x_lengths)
-            else:
-                output = model(x)
+            output = model(x)
 
             loss = criterion(output, y)
             loss.backward()
