@@ -118,8 +118,7 @@ class Model(nn.Module):
         if lengths is not None:
             output = unpack(output)[0]
 
-        if self.temp_max_pool:
-            output = torch.max(output, 0)[0].squeeze(0)
+        output = torch.max(output, 0)[0].squeeze(0)
 
         return output
 
