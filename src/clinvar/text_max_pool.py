@@ -198,13 +198,13 @@ class Model(nn.Module):
                     old_max_contribution, old_label_index = torch.max(old_assignment, 0)
                     new_max_contribution, new_label_index = torch.max(new_assignment, 0)
 
-                    if new_max_contribution > old_max_contribution:
+                    if (new_max_contribution > old_max_contribution).numpy():
                         assignment_dist[b, time_step, :] = n_weight_map.data.cpu()[b, :, d]
 
                     # we investigate if this time step voted for a different candidate
-                    if old_label_index != new_label_index:
+                    if (old_label_index != new_label_index).numpy():
                         records[b, time_step] += 1  # because it voted for a different label
-                        if new_max_contribution > old_max_contribution:
+                        if (new_max_contribution > old_max_contribution).numpy():
                             reassign_records[b, time_step] += 1
 
         return assignment_dist, records, reassign_records, votes_dist
