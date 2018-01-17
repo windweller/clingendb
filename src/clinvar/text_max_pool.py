@@ -152,7 +152,9 @@ class Model(nn.Module):
         # then in visualization we can cut it out, meddle however we want
         return n_weight_map
 
-    def get_visualization_dict(self, output):
+    def get_visualization_tensor(self, output):
+        # NOTE: this returns a tensor, not a dictionary
+
         # indices = get_label_attribution()
         # return [batch_size, time_step, label_distribution]
         # for time_step with no assignment, we do [0, 0, ..., 0]
@@ -165,14 +167,51 @@ class Model(nn.Module):
         sent_vec, indices = torch.max(output, 0)
         n_weight_map = self.get_weight_map(sent_vec)
 
+        # we record how many times each dimension voted to DIFFERENT candidate/label
+        records = torch.zeros(batch_size, seq_len)
+        # records how often we actually reassign when the label changed
+        reassign_records = torch.zeros(batch_size, seq_len)
+        # votes distribution: indices (how many votes per word has)
+        votes_dist = torch.zeros(batch_size, seq_len)
+
         # not sure if there's Torch tensor-op that will solve this
         for b in range(batch_size):
+            # this is per-example, we record used time_steps
+            time_steps = set()
             for d in range(self.hidden_size):
                 # get the time_step of each dim
                 time_step = indices.data.cpu()[b, d]
-                assignment_dist[b, time_step, :] = n_weight_map.data.cpu()[b, :, d]
+                # add to votes distributions
+                votes_dist[b, time_step] += 1
+                if time_step not in time_steps:
+                    assignment_dist[b, time_step, :] = n_weight_map.data.cpu()[b, :, d]
+                    time_steps.add(time_step)
+                else:
+                    # this part is supposed to compare new assignment to prev one
+                    # and find the most influential:
+                    # compare the max proportion of the two assignments, and go with
+                    # whichever one is larger...
+                    old_assignment = assignment_dist[b, time_step, :]
+                    new_assignment = n_weight_map.data.cpu()[b, :, d]
 
-        return assignment_dist
+                    # assignment is a vector (1-dim)
+                    old_max_contribution, old_label_index = torch.max(old_assignment, 0)
+                    new_max_contribution, new_label_index = torch.max(new_assignment, 0)
+
+                    if new_max_contribution > old_max_contribution:
+                        assignment_dist[b, time_step, :] = n_weight_map.data.cpu()[b, :, d]
+
+                    # we investigate if this time step voted for a different candidate
+                    if old_label_index != new_label_index:
+                        records[b, time_step] += 1  # because it voted for a different label
+                        if new_max_contribution > old_max_contribution:
+                            reassign_records[b, time_step] += 1
+
+        return assignment_dist, records, reassign_records, votes_dist
+
+    def get_visualization_dic(self, output):
+        # return all assignments to one timestep, it's a dictionary
+        pass
 
 def get_multiclass_recall(preds, y_label):
     # preds: (label_size), y_label; (label_size)
@@ -188,7 +227,6 @@ def get_multiclass_recall(preds, y_label):
             labels_accu[la] = [accu]
         else:
             labels_accu[la] = []
-
 
     return labels_accu
 
@@ -236,6 +274,11 @@ def eval_model(model, valid_iter, save_pred=False):
     all_y_labels = []
     all_orig_texts = []
     all_text_vis = []
+
+    all_records = []  # we record how many times each dimension voted to DIFFERENT candidate/label
+    all_reassign_records = []
+    all_votes_dist = []
+
     for data in valid_iter:
         (x, x_lengths), y = data.Text, data.Description
 
@@ -243,8 +286,11 @@ def eval_model(model, valid_iter, save_pred=False):
         output = model.get_logits(output_vecs)
 
         # (batch_size, time_step, label_dist)
-        label_map = model.get_visualization_dict(output_vecs)
-        all_text_vis.extend(label_map.numpy().tolist())
+        label_assignment_tensor, records, reassign_records, votes_dist = model.get_visualization_tensor(output_vecs)
+        all_text_vis.extend(label_assignment_tensor.numpy().tolist())
+        all_records.extend(records.numpy().tolist())
+        all_reassign_records.extend(reassign_records.numpy().tolist())
+        all_votes_dist.extend(votes_dist.numpy().tolist())
 
         loss = criterion(output, y)
         total_loss += loss.data[0] * x.size(1)
