@@ -88,7 +88,7 @@ if __name__ == '__main__':
             columns = line.split('\t')
             labels = columns[-1]
             maj_label = get_majority_label(labels)
-            text = columns[3]
+            text = preprocess_text(columns[3])
 
             labels_dist.append(maj_label)
 

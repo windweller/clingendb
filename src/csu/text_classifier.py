@@ -192,7 +192,7 @@ class Model(nn.Module):
 
 def get_multiclass_recall(preds, y_label):
     # preds: (label_size), y_label; (label_size)
-    label_cat = range(len(label_list))
+    label_cat = range(len(labels))
     labels_accu = {}
 
     for la in label_cat:
@@ -209,7 +209,7 @@ def get_multiclass_recall(preds, y_label):
 
 
 def get_multiclass_prec(preds, y_label):
-    label_cat = range(len(label_list))
+    label_cat = range(len(labels))
     labels_accu = {}
 
     for la in label_cat:
@@ -420,15 +420,17 @@ if __name__ == '__main__':
     # spacy_en = spacy.load('en')
     spacy_en = spacy.load('en_core_web_sm')
 
-    with open('../../data/clinvar/text_classification_db_labels.json', 'r') as f:
-        labels = json.load(f)
+    labels = range(1, 19) # 1 to 18
 
-    # map labels to list
-    label_list = [None] * len(labels)
-    for k, v in labels.items():
-        label_list[v] = k
-
-    labels = label_list
+    # with open('../../data/clinvar/text_classification_db_labels.json', 'r') as f:
+    #     labels = json.load(f)
+    #
+    # # map labels to list
+    # label_list = [None] * len(labels)
+    # for k, v in labels.items():
+    #     label_list[v] = k
+    #
+    # labels = label_list
     logger.info("available labels: ")
     logger.info(labels)
 
