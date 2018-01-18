@@ -21,6 +21,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from torchtext import data
+from sklearn.metrics import f1_score
 
 import logging
 
@@ -303,7 +304,7 @@ def eval_model(model, valid_iter, save_pred=False):
 
     multiclass_f1_msg = 'Multiclass F1 - '
     if args.f1:
-        # compute f1 score
+        # compute f1 score, no average, this is the same as F1 from sklearn
         for k, v_recall in mean_multi_recall.iteritems():
             v_prec = mean_multi_prec[k]
             f1 = 2 * (v_prec * v_recall) / (v_prec + v_recall)
@@ -312,6 +313,8 @@ def eval_model(model, valid_iter, save_pred=False):
     logging.info(multiclass_recall_msg)
 
     logging.info(multiclass_prec_msg)
+
+    logging.info(multiclass_f1_msg)
 
     if save_pred:
         import csv
