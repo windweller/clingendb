@@ -192,7 +192,7 @@ class Model(nn.Module):
 
 def get_multiclass_recall(preds, y_label):
     # preds: (label_size), y_label; (label_size)
-    label_cat = range(len(labels))
+    label_cat = range(len(label_list))
     labels_accu = {}
 
     for la in label_cat:
@@ -209,7 +209,7 @@ def get_multiclass_recall(preds, y_label):
 
 
 def get_multiclass_prec(preds, y_label):
-    label_cat = range(len(labels))
+    label_cat = range(len(label_list))
     labels_accu = {}
 
     for la in label_cat:
@@ -424,13 +424,17 @@ if __name__ == '__main__':
 
     # with open('../../data/clinvar/text_classification_db_labels.json', 'r') as f:
     #     labels = json.load(f)
-    #
+
+    labels = {}
+    for true_label in range(1, 19):
+        labels[str(true_label)] = true_label-1  # actual label we see
+
     # # map labels to list
-    # label_list = [None] * len(labels)
-    # for k, v in labels.items():
-    #     label_list[v] = k
-    #
-    # labels = label_list
+    label_list = [None] * len(labels)
+    for k, v in labels.items():
+        label_list[v] = k
+
+    labels = label_list
     logger.info("available labels: ")
     logger.info(labels)
 
