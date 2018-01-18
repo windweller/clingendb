@@ -33,7 +33,7 @@ argparser = argparse.ArgumentParser(sys.argv[0], conflict_handler='resolve')
 argparser.add_argument("--dataset", type=str, default='major', help="major|seq, majority label or sequential label")
 argparser.add_argument("--batch_size", "--batch", type=int, default=32)
 argparser.add_argument("--unroll_size", type=int, default=35)
-argparser.add_argument("--max_epoch", type=int, default=5)
+argparser.add_argument("--max_epoch", type=int, default=10)
 argparser.add_argument("--d", type=int, default=910)
 argparser.add_argument("--dropout", type=float, default=0.3,
                        help="dropout of word embeddings and softmax output")
@@ -420,7 +420,7 @@ if __name__ == '__main__':
     # spacy_en = spacy.load('en')
     spacy_en = spacy.load('en_core_web_sm')
 
-    labels = range(1, 19) # 1 to 18
+    labels = range(0, 18) # 1 to 18 but now we processed to be 0 to 17 :)
 
     # with open('../../data/clinvar/text_classification_db_labels.json', 'r') as f:
     #     labels = json.load(f)
@@ -478,12 +478,9 @@ if __name__ == '__main__':
     optimizer = optim.Adam(
         filter(need_grad, model.parameters()),
         lr=0.001)
-    # optimizer = optim.SGD(
-    #     filter(need_grad, model.parameters()),
-    #     lr=0.01)
 
     train_module(model, optimizer, train_iter, val_iter, test_iter,
-                 max_epoch=5)
+                 max_epoch=args.max_epoch)
 
     test_accu, test_sparsity_coherence_cost = eval_model(model, test_iter, save_pred=True)
     logger.info("final test accu: {}, test sparsity cost: {}".format(test_accu, test_sparsity_coherence_cost))

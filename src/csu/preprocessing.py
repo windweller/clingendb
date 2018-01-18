@@ -92,7 +92,7 @@ if __name__ == '__main__':
 
             labels_dist.append(maj_label)
 
-            examples.append([text, maj_label])
+            examples.append([text, str(int(maj_label) - 1)])  # start from 0
 
     # import matplotlib.pyplot as plt
     #
