@@ -113,6 +113,10 @@ class Model(nn.Module):
             lengths = lengths.view(-1).tolist()
             packed_emb = nn.utils.rnn.pack_padded_sequence(embed_input, lengths)
 
+        # TODO: investigate what's going on here...
+        # TODO: these hidden states are "padded", 0, should not have label attributed to them
+        # TODO: but in reality...they do!
+
         output, hidden = self.encoder(packed_emb)  # embed_input
 
         if lengths is not None:
@@ -339,11 +343,12 @@ def eval_model(model, valid_iter, save_pred=False):
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
 
-            for pair in zip(all_preds, all_y_labels, all_orig_texts, all_text_vis):
-                writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2], 'label_vis': pair[3]})
+            for pair in zip(all_preds, all_y_labels, all_orig_texts, all_text_vis, all_records, all_reassign_records, all_votes_dist):
+                writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2], 'label_vis': pair[3],
+                                 'record': pair[4], 'reassign_record': pair[5], 'vote_dist': pair[6]})
 
         with open(pjoin(args.run_dir, 'label_vis_map.json'), 'wb') as f:
-            json.dump([all_preds, all_y_labels, all_orig_texts, all_text_vis], f)
+            json.dump([all_preds, all_y_labels, all_orig_texts, all_text_vis, all_records, all_reassign_records, all_votes_dist], f)
 
         with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
             json.dump(label_list, f)
