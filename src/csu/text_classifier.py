@@ -51,6 +51,7 @@ argparser.add_argument("--emb_update", action="store_true", help="update embeddi
 argparser.add_argument("--sparsity", type=float, default=4e-4, help="{2e-4, 3e-4, 4e-4}")
 argparser.add_argument("--coherent", type=float, default=2.0, help="paper did 2 * lambda1")
 argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
+argparser.add_argument("--f1", action="store_true", help="output f1 metrics")
 
 args = argparser.parse_args()
 
@@ -292,13 +293,21 @@ def eval_model(model, valid_iter, save_pred=False):
     mean_multi_recall = get_mean_multiclass_accuracy(total_labels_recall)
 
     for k, v in mean_multi_recall.iteritems():
-        multiclass_recall_msg += labels[k] + ": " + str(v) + " "
+        multiclass_recall_msg += labels[k] + ": {0:.3f}".format(v) + " | "
 
     multiclass_prec_msg = 'Multiclass Precision - '
     mean_multi_prec = get_mean_multiclass_accuracy(total_labels_prec)
 
     for k, v in mean_multi_prec.iteritems():
-        multiclass_prec_msg += labels[k] + ": " + str(v) + " "
+        multiclass_prec_msg += labels[k] + ": {0:.3f}".format(v) + " | "
+
+    multiclass_f1_msg = 'Multiclass F1 - '
+    if args.f1:
+        # compute f1 score
+        for k, v_recall in mean_multi_recall.iteritems():
+            v_prec = mean_multi_prec[k]
+            f1 = 2 * (v_prec * v_recall) / (v_prec + v_recall)
+            multiclass_f1_msg += labels[k] + ": {0:.3f}".format(f1) + " | "
 
     logging.info(multiclass_recall_msg)
 
