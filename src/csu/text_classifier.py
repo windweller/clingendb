@@ -34,7 +34,8 @@ argparser.add_argument("--dataset", type=str, default='major', help="major|seq, 
 argparser.add_argument("--batch_size", "--batch", type=int, default=32)
 argparser.add_argument("--unroll_size", type=int, default=35)
 argparser.add_argument("--max_epoch", type=int, default=10)
-argparser.add_argument("--d", type=int, default=910)
+argparser.add_argument("--d", type=int, default=256)
+argparser.add_argument("--emb_dim", type=int, default=100)
 argparser.add_argument("--dropout", type=float, default=0.3,
                        help="dropout of word embeddings and softmax output")
 argparser.add_argument("--depth", type=int, default=1)
@@ -94,12 +95,12 @@ class Model(nn.Module):
         self.scaled_dot_attn = scaled_dot_attn
         self.temp_max_pool = temp_max_pool
         self.hidden_size = hidden_size
-        self.drop = nn.Dropout(0.2)
+        self.drop = nn.Dropout(args.dropout)
         self.encoder = nn.LSTM(
             emb_dim,
             hidden_size,
             depth,
-            dropout=0.2,
+            dropout=args.dropout,
             bidirectional=False)  # ha...not even bidirectional
         d_out = hidden_size
         self.out = nn.Linear(d_out * attn_head, nclasses, bias=False)
@@ -454,7 +455,14 @@ if __name__ == '__main__':
         #     validation='text_classification_db_valid.tsv', test='text_classification_db_test.tsv', format='tsv',
         #     fields=[('Text', TEXT), ('Description', LABEL)])
 
-    TEXT.build_vocab(train, vectors="glove.6B.100d")
+    if args.emb_dim == 100:
+        TEXT.build_vocab(train, vectors="glove.6B.100d")
+    elif args.emb_dim == 200:
+        TEXT.build_vocab(train, vectors="glove.6B.200d")
+    elif args.emb_dim == 300:
+        TEXT.build_vocab(train, vectors="glove.6B.300d")
+    else:
+        TEXT.build_vocab(train, vectors="glove.6B.100d")
 
     # do repeat=False
     train_iter, val_iter, test_iter = data.Iterator.splits(
@@ -470,7 +478,7 @@ if __name__ == '__main__':
 
     # so now all you need to do is to create an iterator
 
-    model = Model(vocab, nclasses=len(labels), scaled_dot_attn=args.attn)
+    model = Model(vocab, nclasses=len(labels), emb_dim=args.emb_dim, scaled_dot_attn=args.attn, hidden_size=args.d, depth=args.depth)
     if torch.cuda.is_available():
         model.cuda(args.gpu)
 
