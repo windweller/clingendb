@@ -339,7 +339,7 @@ def eval_model(model, valid_iter, save_pred=False):
     if save_pred:
         import csv
         with open(pjoin(args.run_dir, 'confusion_test.csv'), 'wb') as csvfile:
-            fieldnames = ['preds', 'labels', 'text', 'label_vis']
+            fieldnames = ['preds', 'labels', 'text', 'label_vis', 'record', 'reassign_record', 'vote_dist']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
 
