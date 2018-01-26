@@ -199,9 +199,9 @@ def sparse_one_hot_mat_to_indices(preds):
 
 def condense_preds(indicies, batch_size):
     # can condense both preds and y
-    a = [[]] * batch_size
+    a = [[] for _ in range(batch_size)]
     for b, l in indicies:
-        a[b].append(l)
+        a[b].append(str(l))
     condensed_preds = []
     for labels in a:
         condensed_preds.append("-".join(labels))
@@ -306,11 +306,12 @@ def train_module(model, optimizer,
 
     exp_cost = None
     end_of_epoch = True  # False  # set true because we want immediate feedback...
-    iter = 0
+
     best_valid = 0.
     epoch = 1
 
     for n in range(max_epoch):
+        iter = 0
         for data in train_iter:
             iter += 1
 
