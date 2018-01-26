@@ -22,7 +22,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from torchtext import data
 from sklearn.metrics import f1_score
-from util import MultiLabelField
+from util import MultiLabelField, ReversibleField
 
 from sklearn import metrics
 
@@ -406,8 +406,9 @@ if __name__ == '__main__':
     logger.info("available labels: ")
     logger.info(labels)
 
-    TEXT = data.ReversibleField(sequential=True, tokenize=tokenizer,
+    TEXT = ReversibleField(sequential=True, tokenize=tokenizer,
                                 lower=True, include_lengths=True)
+
     LABEL = MultiLabelField(sequential=True, use_vocab=False, label_size=18, tensor_type=torch.FloatTensor)
 
     if args.dataset == 'major':
