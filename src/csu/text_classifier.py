@@ -22,6 +22,9 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from torchtext import data
 from sklearn.metrics import f1_score
+from util import MultiLabelField
+
+from sklearn import metrics
 
 import logging
 
@@ -31,7 +34,7 @@ reload(sys)
 sys.setdefaultencoding('utf-8')
 
 argparser = argparse.ArgumentParser(sys.argv[0], conflict_handler='resolve')
-argparser.add_argument("--dataset", type=str, default='major', help="major|seq, majority label or sequential label")
+argparser.add_argument("--dataset", type=str, default='major', help="major|multi, majority label or multi label")
 argparser.add_argument("--batch_size", "--batch", type=int, default=32)
 argparser.add_argument("--unroll_size", type=int, default=35)
 argparser.add_argument("--max_epoch", type=int, default=10)
@@ -46,13 +49,10 @@ argparser.add_argument("--run_dir", type=str, default='./exp')
 argparser.add_argument("--seed", type=int, default=123)
 argparser.add_argument("--gpu", type=int, default=-1)
 argparser.add_argument("--attn", action="store_true", help="by using attention to generate some interpretation")
-argparser.add_argument("--sparsity_reg", action="store_true",
-                       help="apply L1 and diff regularization to attention logits")
 argparser.add_argument("--emb_update", action="store_true", help="update embedding")
 argparser.add_argument("--sparsity", type=float, default=4e-4, help="{2e-4, 3e-4, 4e-4}")
 argparser.add_argument("--coherent", type=float, default=2.0, help="paper did 2 * lambda1")
 argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
-argparser.add_argument("--f1", action="store_true", help="output f1 metrics")
 
 args = argparser.parse_args()
 
@@ -95,6 +95,7 @@ class Model(nn.Module):
                  scaled_dot_attn=False, temp_max_pool=False, attn_head=1):
         super(Model, self).__init__()
         self.scaled_dot_attn = scaled_dot_attn
+        self.nclasses = nclasses
         self.temp_max_pool = temp_max_pool
         self.hidden_size = hidden_size
         self.drop = nn.Dropout(args.dropout)
@@ -105,7 +106,7 @@ class Model(nn.Module):
             dropout=args.dropout,
             bidirectional=False)  # ha...not even bidirectional
         d_out = hidden_size
-        self.out = nn.Linear(d_out * attn_head, nclasses, bias=False)
+        self.out = nn.Linear(d_out * attn_head, nclasses)  # nclasses
         self.embed = nn.Embedding(len(vocab), emb_dim)
         self.embed.weight.data.copy_(vocab.vectors)
         self.embed.weight.requires_grad = True if args.emb_update else False
@@ -136,19 +137,6 @@ class Model(nn.Module):
         exp_mask = Variable((1 - mask) * VERY_NEGATIVE_NUMBER, requires_grad=False)
         return val + move_to_cuda(exp_mask)
 
-    def compute_sparsity_penalty(self, attn_logits):
-        # attn_logits: [seq_len, batch_size]
-        #
-        coherent_factor = args.sparsity * args.coherent
-
-        # this is the l1 loss
-        z_sum = torch.sum(torch.abs(attn_logits), dim=0)  # temporal dimension
-        z_diff = torch.abs(attn_logits[1:] - attn_logits[:-1]).sum(dim=0)
-
-        sparsity_coherence_cost = torch.mean(z_sum) * args.sparsity + torch.mean(z_diff) * coherent_factor
-
-        return sparsity_coherence_cost
-
     def forward(self, input, lengths=None):
         embed_input = self.embed(input)
 
@@ -177,8 +165,7 @@ class Model(nn.Module):
 
             batch_mask = self.create_mask(lengths)
 
-            masked_keys = keys * Variable(move_to_cuda(batch_mask))  # taking masked parts to be 0
-            sparsity_coherence_cost = self.compute_sparsity_penalty(masked_keys)
+            # masked_keys = keys * Variable(move_to_cuda(batch_mask))  # taking masked parts to be 0
 
             exp_maksed_keys = self.exp_mask(keys, batch_mask)
 
@@ -188,133 +175,109 @@ class Model(nn.Module):
             # (time, batch_size, 1) * (time, batch_size, hidden_state)
             output = torch.sum(output * keys_view, 0)
 
-            return self.out(output), keys, sparsity_coherence_cost  # (batch_size, time)
+            return self.out(output), keys  # (batch_size, time)
 
         return self.out(hidden)
 
 
-def get_multiclass_recall(preds, y_label):
-    # preds: (label_size), y_label; (label_size)
-    label_cat = range(len(label_list))
-    labels_accu = {}
-
-    for la in label_cat:
-        # for each label, we get the index of the correct labels
-        idx_of_cat = y_label == la
-        cat_preds = preds[idx_of_cat]
-        if cat_preds.size != 0:
-            accu = np.mean(cat_preds == la)
-            labels_accu[la] = [accu]
-        else:
-            labels_accu[la] = []
-
-    return labels_accu
+to_prob = nn.Sigmoid()
 
 
-def get_multiclass_prec(preds, y_label):
-    label_cat = range(len(label_list))
-    labels_accu = {}
+def preds_to_sparse_matrix(indices, batch_size, label_size):
+    # this is for preds
+    # indices will be a list: [[0, 0], [0, 1], ...]
+    labels = np.zeros((batch_size, label_size))
+    for b, l in indices:
+        labels[b, l] = 1.
+    return labels
 
-    for la in label_cat:
-        # for each label, we get the index of predictions
-        idx_of_cat = preds == la
-        cat_preds = y_label[idx_of_cat]  # ground truth
-        if cat_preds.size != 0:
-            accu = np.mean(cat_preds == la)
-            labels_accu[la] = [accu]
-        else:
-            labels_accu[la] = []
+def output_to_preds(output):
+    return (output > 0.5)
 
-    return labels_accu
+def sparse_one_hot_mat_to_indices(preds):
+    return preds.nonzero()
 
+def condense_preds(indicies, batch_size):
+    # can condense both preds and y
+    a = [[]] * batch_size
+    for b, l in indicies:
+        a[b].append(l)
+    condensed_preds = []
+    for labels in a:
+        condensed_preds.append("-".join(labels))
+    assert len(condensed_preds) == len(a)
 
-def cumulate_multiclass_accuracy(total_accu, labels_accu):
-    for k, v in labels_accu.iteritems():
-        total_accu[k].extend(v)
-
-
-def get_mean_multiclass_accuracy(total_accu):
-    new_dict = {}
-    for k, v in total_accu.iteritems():
-        new_dict[k] = np.mean(total_accu[k])
-    return new_dict
+    return condensed_preds
 
 
 def eval_model(model, valid_iter, save_pred=False):
     # when test_final is true, we save predictions
     model.eval()
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.BCEWithLogitsLoss()
     correct = 0.0
     cnt = 0
     total_loss = 0.0
-    total_sparsity_coherence_cost = 0.0
-    total_labels_recall = None
 
-    total_labels_prec = None
     all_preds = []
+    all_condensed_preds = []
     all_y_labels = []
+    all_condensed_ys = []
     all_orig_texts = []
     all_keys = []
+
     for data in valid_iter:
         (x, x_lengths), y = data.Text, data.Description
         if args.attn:
-            output, keys, sparsity_coherence_cost = model(x, x_lengths)
+            output, keys = model(x, x_lengths)
             all_keys.extend(keys.data.cpu().numpy().tolist())
         else:
             output = model(x)
         loss = criterion(output, y)
         total_loss += loss.data[0] * x.size(1)
 
-        total_sparsity_coherence_cost += sparsity_coherence_cost.data[0] * x.size(1)
+        batch_size = x.size(0)
 
-        preds = output.data.max(1)[1]  # already taking max...I think, max returns a tuple
-        correct += preds.eq(y.data).cpu().sum()
-        cnt += y.numel()
+        # preds = output.data.max(1)[1]  # already taking max...I think, max returns a tuple
+        preds = output_to_preds(output)
+        preds_indices = sparse_one_hot_mat_to_indices(preds.data.cpu().numpy().tolist())
+
+        sparse_preds = preds_to_sparse_matrix(preds_indices, batch_size, model.nclasses)
+
+        all_preds.append(sparse_preds)
+        all_y_labels.append(y.data.cpu().numpy())
+
+        # we rebuild preds for [1-2-5, 10-10-1]
+        # and turn y into [1-2-5, 10-10-1] as well
+
+        # correct += preds.eq(y.data).cpu().sum()
+
+        correct += metrics.accuracy_score(y.data.cpu().numpy(), sparse_preds)
+        cnt += 1  # accuracy is average already, so we just count number of batches
 
         orig_text = TEXT.reverse(x.data)
         all_orig_texts.extend(orig_text)
 
         if save_pred:
-            all_preds.extend(preds.cpu().numpy().tolist())
-            all_y_labels.extend(y.data.cpu().numpy().tolist())
+            y_indices = sparse_one_hot_mat_to_indices(y.data.cpu().numpy().tolist())
+            condensed_preds = condense_preds(preds_indices, batch_size)
+            condensed_ys = condense_preds(y_indices, batch_size)
 
-        # compute multiclass
-        labels_recall = get_multiclass_recall(preds.cpu().numpy(), y.data.cpu().numpy())
-        labels_prec = get_multiclass_prec(preds.cpu().numpy(), y.data.cpu().numpy())
-        if total_labels_recall is None:
-            total_labels_recall = labels_recall
-            total_labels_prec = labels_prec
-        else:
-            cumulate_multiclass_accuracy(total_labels_recall, labels_recall)
-            cumulate_multiclass_accuracy(total_labels_prec, labels_prec)
-
-            # valid and tests can stop themselves
-
-    multiclass_recall_msg = 'Multiclass Recall - '
-    mean_multi_recall = get_mean_multiclass_accuracy(total_labels_recall)
-
-    for k, v in mean_multi_recall.iteritems():
-        multiclass_recall_msg += labels[k] + ": {0:.3f}".format(v) + " | "
-
-    multiclass_prec_msg = 'Multiclass Precision - '
-    mean_multi_prec = get_mean_multiclass_accuracy(total_labels_prec)
-
-    for k, v in mean_multi_prec.iteritems():
-        multiclass_prec_msg += labels[k] + ": {0:.3f}".format(v) + " | "
+            all_condensed_preds.extend(condensed_preds)
+            all_condensed_ys.extend(condensed_ys)
 
     multiclass_f1_msg = 'Multiclass F1 - '
-    if args.f1:
-        # compute f1 score, no average, this is the same as F1 from sklearn
-        for k, v_recall in mean_multi_recall.iteritems():
-            v_prec = mean_multi_prec[k]
-            f1 = 2 * (v_prec * v_recall) / (v_prec + v_recall)
-            multiclass_f1_msg += labels[k] + ": {0:.3f}".format(f1) + " | "
 
-    logging.info(multiclass_recall_msg)
+    preds = np.vstack(all_preds)
+    ys = np.vstack(all_y_labels)
 
-    logging.info(multiclass_prec_msg)
+    # both should be giant sparse label matrices
+    f1_by_label = metrics.f1_score(ys, preds, average=None)
+    for i, f1_value in enumerate(f1_by_label.tolist()):
+        multiclass_f1_msg += labels[i] + ": " + str(f1_value) + " "
 
     logging.info(multiclass_f1_msg)
+
+    assert len(all_condensed_ys) == len(all_condensed_preds) == len(all_orig_texts)
 
     if save_pred:
         import csv
@@ -324,21 +287,22 @@ def eval_model(model, valid_iter, save_pred=False):
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
 
-            for pair in zip(all_preds, all_y_labels, all_orig_texts):
+            for pair in zip(all_condensed_preds, all_condensed_ys, all_orig_texts):
                 writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2]})
         with open(pjoin(args.run_dir, 'attn_map.json'), 'wb') as f:
-            json.dump([all_preds, all_y_labels, all_orig_texts, all_keys], f)
+            json.dump([all_condensed_preds, all_condensed_ys, all_orig_texts, all_keys], f)
         with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
             json.dump(label_list, f)
 
     model.train()
-    return correct / cnt, total_sparsity_coherence_cost / cnt
+    return correct / cnt
 
 
 def train_module(model, optimizer,
                  train_iter, valid_iter, test_iter, max_epoch):
     model.train()
-    criterion = nn.CrossEntropyLoss()
+    # criterion = nn.CrossEntropyLoss()
+    criterion = nn.BCEWithLogitsLoss()
 
     exp_cost = None
     end_of_epoch = True  # False  # set true because we want immediate feedback...
@@ -358,12 +322,8 @@ def train_module(model, optimizer,
             else:
                 output = model(x)
 
-            loss = criterion(output, y)
-            if not args.sparsity_reg:
-                loss.backward()
-            else:
-                total_loss = loss + sparsity_coherence_cost
-                total_loss.backward()
+            loss = criterion(output, y)  # y, output should be the same shape
+            loss.backward()
 
             torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
 
@@ -375,23 +335,17 @@ def train_module(model, optimizer,
                 exp_cost = 0.99 * exp_cost + 0.01 * loss.data[0]
 
             if iter % 100 == 0:
-                logging.info("iter {} lr={} train_loss={} exp_cost={} sparsity_coherence_cost={} \n".format(iter,
-                                                                                                            optimizer.param_groups[
-                                                                                                                0][
-                                                                                                                'lr'],
-                                                                                                            loss.data[
-                                                                                                                0],
-                                                                                                            exp_cost,
-                                                                                                            sparsity_coherence_cost.data[
-                                                                                                                0]))
+                logging.info("iter {} lr={} train_loss={} exp_cost={} \n".format(iter,
+                                                                                 optimizer.param_groups[0]['lr'],
+                                                                                 loss.data[0],
+                                                                                 exp_cost))
 
-        valid_accu, valid_sparsity_coherence_cost = eval_model(model, valid_iter)
-        sys.stdout.write("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f} valid_sparsity_cost={:6f}\n".format(
+        valid_accu = eval_model(model, valid_iter)
+        sys.stdout.write("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
             epoch,
             optimizer.param_groups[0]['lr'],
             loss.data[0],
-            valid_accu,
-            valid_sparsity_coherence_cost
+            valid_accu
         ))
 
         epoch += 1
@@ -433,14 +387,14 @@ if __name__ == '__main__':
     # spacy_en = spacy.load('en')
     spacy_en = spacy.load('en_core_web_sm')
 
-    labels = range(0, 18) # 1 to 18 but now we processed to be 0 to 17 :)
+    labels = range(0, 18)  # 1 to 18 but now we processed to be 0 to 17 :)
 
     # with open('../../data/clinvar/text_classification_db_labels.json', 'r') as f:
     #     labels = json.load(f)
 
     labels = {}
     for true_label in range(1, 19):
-        labels[str(true_label)] = true_label-1  # actual label we see
+        labels[str(true_label)] = true_label - 1  # actual label we see
 
     # # map labels to list
     label_list = [None] * len(labels)
@@ -453,7 +407,8 @@ if __name__ == '__main__':
 
     TEXT = data.ReversibleField(sequential=True, tokenize=tokenizer,
                                 lower=True, include_lengths=True)
-    LABEL = data.Field(sequential=False, use_vocab=False)
+    LABEL = MultiLabelField(sequential=True, use_vocab=False, label_size=18, tensor_type=torch.FloatTensor)
+
     if args.dataset == 'major':
         train, val, test = data.TabularDataset.splits(
             path='../../data/csu/', train='maj_label_train.tsv',
@@ -461,11 +416,11 @@ if __name__ == '__main__':
             test='maj_label_test.tsv', format='tsv',
             fields=[('Text', TEXT), ('Description', LABEL)])
     else:
-        raise NotImplementedError
-        # train, val, test = data.TabularDataset.splits(
-        #     path='../../data/csu/', train='text_classification_db_train.tsv',
-        #     validation='text_classification_db_valid.tsv', test='text_classification_db_test.tsv', format='tsv',
-        #     fields=[('Text', TEXT), ('Description', LABEL)])
+        train, val, test = data.TabularDataset.splits(
+            path='../../data/csu/', train='multi_label_train.tsv',
+            validation='multi_label_valid.tsv',
+            test='multi_label_test.tsv', format='tsv',
+            fields=[('Text', TEXT), ('Description', LABEL)])
 
     if args.emb_dim == 100:
         TEXT.build_vocab(train, vectors="glove.6B.100d")
@@ -490,7 +445,8 @@ if __name__ == '__main__':
 
     # so now all you need to do is to create an iterator
 
-    model = Model(vocab, nclasses=len(labels), emb_dim=args.emb_dim, scaled_dot_attn=args.attn, hidden_size=args.d, depth=args.depth)
+    model = Model(vocab, nclasses=len(labels), emb_dim=args.emb_dim, scaled_dot_attn=args.attn, hidden_size=args.d,
+                  depth=args.depth)
     if torch.cuda.is_available():
         model.cuda(args.gpu)
 

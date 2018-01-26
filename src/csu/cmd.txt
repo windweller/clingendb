@@ -1,0 +1,7 @@
+#################### Attention model ####################
+
+python text_classifier.py --attn --rand_unk --gpu 0 --run_dir exp/attn_emb_update_unk_rand --max_epoch 10 --emb_update --f1
+
+python text_classifier.py --attn --rand_unk --gpu 0 --run_dir exp/large_attn_emb_update_unk_rand --max_epoch 3 --emb_update --d 512 --emb_dim 300 --f1
+
+##########################################################

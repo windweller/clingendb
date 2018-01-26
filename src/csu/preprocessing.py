@@ -6,6 +6,9 @@ for TorchText to train on
 import re
 import numpy as np
 
+Majority_label = False
+Multi_label = True
+
 np.random.seed(1234)
 
 # ======== Split =========
@@ -60,6 +63,14 @@ def get_majority_label(labels):
     most_freq_label = get_most_freq_label(dic)
     return most_freq_label
 
+def collapse_label(labels):
+    labels = labels.strip()
+    labels = labels.replace('17', '')
+    list_labels = filter(lambda l: len(l) > 0, labels.split('-'))
+    if len(list_labels) == 0:
+        list_labels = ['17']  # meaning it only has 17
+    set_labels = set(list_labels)  # remove redundancies
+    return list(set_labels)
 
 def cleanhtml(raw_html):
     cleanr = re.compile('<.*?>')
@@ -87,12 +98,18 @@ if __name__ == '__main__':
                 continue
             columns = line.split('\t')
             labels = columns[-1]
-            maj_label = get_majority_label(labels)
+
             text = preprocess_text(columns[3])
 
-            labels_dist.append(maj_label)
-
-            examples.append([text, str(int(maj_label) - 1)])  # start from 0
+            if Multi_label:
+                seq_labels = collapse_label(labels)
+                labels_dist.extend(seq_labels)
+                # start from 0, and also join back to " " separation
+                examples.append([text, " ".join(map(lambda x: str(int(x) - 1), seq_labels))])
+            elif Majority_label:
+                maj_label = get_majority_label(labels)
+                labels_dist.append(maj_label)
+                examples.append([text, str(int(maj_label) - 1)])  # start from 0
 
     # import matplotlib.pyplot as plt
     #
@@ -131,6 +148,11 @@ if __name__ == '__main__':
     for tn in test_numbers:
         test.append(examples[tn])
 
-    write_to_tsv(train, "../../data/csu/maj_label_train.tsv")
-    write_to_tsv(valid, "../../data/csu/maj_label_valid.tsv")
-    write_to_tsv(test, "../../data/csu/maj_label_test.tsv")
+    if Majority_label:
+        write_to_tsv(train, "../../data/csu/maj_label_train.tsv")
+        write_to_tsv(valid, "../../data/csu/maj_label_valid.tsv")
+        write_to_tsv(test, "../../data/csu/maj_label_test.tsv")
+    elif Multi_label:
+        write_to_tsv(train, "../../data/csu/multi_label_train.tsv")
+        write_to_tsv(valid, "../../data/csu/multi_label_valid.tsv")
+        write_to_tsv(test, "../../data/csu/multi_label_test.tsv")
