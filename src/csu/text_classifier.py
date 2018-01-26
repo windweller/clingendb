@@ -277,9 +277,9 @@ def eval_model(model, valid_iter, save_pred=False):
 
     logging.info(multiclass_f1_msg)
 
-    assert len(all_condensed_ys) == len(all_condensed_preds) == len(all_orig_texts)
-
     if save_pred:
+        assert len(all_condensed_ys) == len(all_condensed_preds) == len(all_orig_texts)
+
         import csv
         # we store things out, hopefully they are in correct order
         with open(pjoin(args.run_dir, 'confusion_test.csv'), 'wb') as csvfile:
