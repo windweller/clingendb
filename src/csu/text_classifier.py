@@ -239,9 +239,9 @@ def eval_model(model, valid_iter, save_pred=False):
 
         # preds = output.data.max(1)[1]  # already taking max...I think, max returns a tuple
         preds = output_to_preds(output)
-        preds_indices = sparse_one_hot_mat_to_indices(preds.data.cpu().numpy().tolist())
+        preds_indices = sparse_one_hot_mat_to_indices(preds)
 
-        sparse_preds = preds_to_sparse_matrix(preds_indices, batch_size, model.nclasses)
+        sparse_preds = preds_to_sparse_matrix(preds_indices.data.cpu().numpy(), batch_size, model.nclasses)
 
         all_preds.append(sparse_preds)
         all_y_labels.append(y.data.cpu().numpy())
@@ -258,9 +258,9 @@ def eval_model(model, valid_iter, save_pred=False):
         all_orig_texts.extend(orig_text)
 
         if save_pred:
-            y_indices = sparse_one_hot_mat_to_indices(y.data.cpu().numpy().tolist())
-            condensed_preds = condense_preds(preds_indices, batch_size)
-            condensed_ys = condense_preds(y_indices, batch_size)
+            y_indices = sparse_one_hot_mat_to_indices(y)
+            condensed_preds = condense_preds(preds_indices.data.cpu().numpy().tolist(), batch_size)
+            condensed_ys = condense_preds(y_indices.data.cpu().numpy().tolist(), batch_size)
 
             all_condensed_preds.extend(condensed_preds)
             all_condensed_ys.extend(condensed_ys)
