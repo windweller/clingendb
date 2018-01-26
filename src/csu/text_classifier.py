@@ -235,7 +235,7 @@ def eval_model(model, valid_iter, save_pred=False):
         loss = criterion(output, y)
         total_loss += loss.data[0] * x.size(1)
 
-        batch_size = x.size(0)
+        batch_size = x.size(1)
 
         # preds = output.data.max(1)[1]  # already taking max...I think, max returns a tuple
         preds = output_to_preds(output)
