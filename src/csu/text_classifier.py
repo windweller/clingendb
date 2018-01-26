@@ -318,7 +318,7 @@ def train_module(model, optimizer,
             (x, x_lengths), y = data.Text, data.Description
 
             if args.attn:
-                output, keys, sparsity_coherence_cost = model(x, x_lengths)
+                output, keys = model(x, x_lengths)
             else:
                 output = model(x)
 
