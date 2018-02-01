@@ -75,9 +75,10 @@ def collapse_label(labels):
 def cleanhtml(raw_html):
     cleanr = re.compile('<.*?>')
     cleantext = re.sub(cleanr, '', raw_html)
+    cleantext = re.sub(r'^https?:\/\/.*[\r\n]*', '', cleantext, flags=re.MULTILINE)
     return cleantext
 
-
+# TODO: 2. Preserve things like "Texas A&M", the ampersand in the middle
 def preprocess_text(text):
     no_html = cleanhtml(text)
     one_white_space = ' '.join(no_html.split())
