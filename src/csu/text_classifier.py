@@ -148,6 +148,7 @@ class Model(nn.Module):
         if not args.bidir:
             hidden = torch.squeeze(hidden[0]) # hidden states, the 2nd is cell states
         else:
+            hidden = hidden[0] # don't take cell state
             hidden = torch.cat([hidden[0], hidden[1]], dim=1)
 
         if lengths is not None:
