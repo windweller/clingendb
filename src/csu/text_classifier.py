@@ -50,8 +50,6 @@ argparser.add_argument("--seed", type=int, default=123)
 argparser.add_argument("--gpu", type=int, default=-1)
 argparser.add_argument("--attn", action="store_true", help="by using attention to generate some interpretation")
 argparser.add_argument("--emb_update", action="store_true", help="update embedding")
-argparser.add_argument("--sparsity", type=float, default=4e-4, help="{2e-4, 3e-4, 4e-4}")
-argparser.add_argument("--coherent", type=float, default=2.0, help="paper did 2 * lambda1")
 argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
 
 args = argparser.parse_args()
@@ -92,7 +90,7 @@ def move_to_cuda(th_var):
 
 class Model(nn.Module):
     def __init__(self, vocab, emb_dim=100, hidden_size=256, depth=1, nclasses=5,
-                 scaled_dot_attn=False, temp_max_pool=False, attn_head=1):
+                 scaled_dot_attn=False, temp_max_pool=False):
         super(Model, self).__init__()
         self.scaled_dot_attn = scaled_dot_attn
         self.nclasses = nclasses
@@ -106,7 +104,7 @@ class Model(nn.Module):
             dropout=args.dropout,
             bidirectional=False)  # ha...not even bidirectional
         d_out = hidden_size
-        self.out = nn.Linear(d_out * attn_head, nclasses)  # nclasses
+        self.out = nn.Linear(d_out, nclasses)  # nclasses
         self.embed = nn.Embedding(len(vocab), emb_dim)
         self.embed.weight.data.copy_(vocab.vectors)
         self.embed.weight.requires_grad = True if args.emb_update else False
@@ -185,7 +183,7 @@ to_prob = nn.Sigmoid()
 
 def preds_to_sparse_matrix(indices, batch_size, label_size):
     # this is for preds
-    # indices will be a list: [[0, 0], [0, 1], ...]
+    # indices will be a list: [[0, 0, 0], [0, 0, 1], ...]
     labels = np.zeros((batch_size, label_size))
     for b, l in indices:
         labels[b, l] = 1.
@@ -276,6 +274,8 @@ def eval_model(model, valid_iter, save_pred=False):
         multiclass_f1_msg += labels[i] + ": " + str(f1_value) + " "
 
     logging.info(multiclass_f1_msg)
+
+    logging.info(metrics.classification_report(ys, preds))
 
     if save_pred:
         assert len(all_condensed_ys) == len(all_condensed_preds) == len(all_orig_texts)
@@ -406,8 +406,7 @@ if __name__ == '__main__':
     logger.info("available labels: ")
     logger.info(labels)
 
-    TEXT = ReversibleField(sequential=True, tokenize=tokenizer,
-                                lower=True, include_lengths=True)
+    TEXT = ReversibleField(sequential=True, tokenize=tokenizer, include_lengths=True, lower=False)
 
     LABEL = MultiLabelField(sequential=True, use_vocab=False, label_size=18, tensor_type=torch.FloatTensor)
 
@@ -447,7 +446,8 @@ if __name__ == '__main__':
 
     # so now all you need to do is to create an iterator
 
-    model = Model(vocab, nclasses=len(labels), emb_dim=args.emb_dim, scaled_dot_attn=args.attn, hidden_size=args.d,
+    model = Model(vocab, nclasses=len(labels), emb_dim=args.emb_dim,
+                  scaled_dot_attn=args.attn, hidden_size=args.d,
                   depth=args.depth)
     if torch.cuda.is_available():
         model.cuda(args.gpu)
