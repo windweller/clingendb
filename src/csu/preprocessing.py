@@ -158,7 +158,11 @@ if __name__ == '__main__':
         write_to_tsv(train, "../../data/csu/maj_label_train.tsv")
         write_to_tsv(valid, "../../data/csu/maj_label_valid.tsv")
         write_to_tsv(test, "../../data/csu/maj_label_test.tsv")
-    elif Multi_label:
+    elif Multi_label and not No_Description:
         write_to_tsv(train, "../../data/csu/multi_label_train.tsv")
         write_to_tsv(valid, "../../data/csu/multi_label_valid.tsv")
         write_to_tsv(test, "../../data/csu/multi_label_test.tsv")
+    elif Multi_label and No_Description:
+        write_to_tsv(train, "../../data/csu/multi_label_no_des_train.tsv")
+        write_to_tsv(valid, "../../data/csu/multi_label_no_des_valid.tsv")
+        write_to_tsv(test, "../../data/csu/multi_label_no_des_test.tsv")
