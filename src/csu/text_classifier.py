@@ -276,7 +276,7 @@ def eval_model(model, valid_iter, save_pred=False):
 
     logging.info(multiclass_f1_msg)
 
-    logging.info(metrics.classification_report(ys, preds))
+    logging.info("\n" + metrics.classification_report(ys, preds))
 
     if save_pred:
         assert len(all_condensed_ys) == len(all_condensed_preds) == len(all_orig_texts)
