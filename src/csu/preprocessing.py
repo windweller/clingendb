@@ -8,6 +8,7 @@ import numpy as np
 
 Majority_label = False
 Multi_label = True
+No_Description = False
 
 np.random.seed(1234)
 
@@ -79,10 +80,14 @@ def cleanhtml(raw_html):
     return cleantext
 
 # TODO: 2. Preserve things like "Texas A&M", the ampersand in the middle
-def preprocess_text(text):
+def preprocess_text(text, no_description):
     no_html = cleanhtml(text)
     one_white_space = ' '.join(no_html.split())
     no_html_entities = re.sub('&[a-z]+;', '', one_white_space)
+
+    if no_description:
+        # delete both diagnosis and discharge status
+        no_html_entities = no_html_entities.split('Diagnosis:')[0]
 
     return no_html_entities
 
@@ -100,7 +105,7 @@ if __name__ == '__main__':
             columns = line.split('\t')
             labels = columns[-1]
 
-            text = preprocess_text(columns[3])
+            text = preprocess_text(columns[3], No_Description)
 
             if Multi_label:
                 seq_labels = collapse_label(labels)
