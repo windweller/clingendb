@@ -417,11 +417,17 @@ if __name__ == '__main__':
             validation='maj_label_valid.tsv',
             test='maj_label_test.tsv', format='tsv',
             fields=[('Text', TEXT), ('Description', LABEL)])
-    else:
+    elif args.dataset == 'multi':
         train, val, test = data.TabularDataset.splits(
             path='../../data/csu/', train='multi_label_train.tsv',
             validation='multi_label_valid.tsv',
             test='multi_label_test.tsv', format='tsv',
+            fields=[('Text', TEXT), ('Description', LABEL)])
+    elif args.dataset == 'multi_no_des':
+        train, val, test = data.TabularDataset.splits(
+            path='../../data/csu/', train='multi_label_no_des_train.tsv',
+            validation='multi_label_no_des_valid.tsv',
+            test='multi_label_no_des_test.tsv', format='tsv',
             fields=[('Text', TEXT), ('Description', LABEL)])
 
     if args.emb_dim == 100:
