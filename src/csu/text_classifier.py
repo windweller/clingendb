@@ -144,7 +144,7 @@ class Model(nn.Module):
             packed_emb = nn.utils.rnn.pack_padded_sequence(embed_input, lengths)
 
         output, hidden = self.encoder(packed_emb)  # embed_input
-        hidden = hidden[0] # hidden states, the 2nd is cell states
+        hidden = torch.squeeze(hidden[0]) # hidden states, the 2nd is cell states
 
         if lengths is not None:
             output = unpack(output)[0]
