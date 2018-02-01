@@ -112,7 +112,8 @@ class Model(nn.Module):
 
         if self.scaled_dot_attn:
             logging.info("adding scaled dot attention matrix")
-            self.key_w = nn.Parameter(torch.randn(hidden_size, hidden_size))
+            size = hidden_size if not args.bidir else hidden_size * 2
+            self.key_w = nn.Parameter(torch.randn(size, size))
 
     def create_mask(self, lengths):
         # lengths would be a python list here, not a Tensor
@@ -159,13 +160,15 @@ class Model(nn.Module):
         elif self.scaled_dot_attn:
             # add scaled dot product attention
 
+            size = self.hidden_size if not args.bidir else self.hidden_size * 2
+
             # enc_output = output[-1]
             enc_output = torch.squeeze(hidden)
             # (batch_size, hidden_state)
-            keys = torch.mm(enc_output, self.key_w) / np.sqrt(self.hidden_size)
+            keys = torch.mm(enc_output, self.key_w) / np.sqrt(size)
 
             # (time, batch_size, hidden_state) * (1, batch_size, hidden_state)
-            keys = torch.sum(keys.view(1, -1, self.hidden_size) * output, 2)
+            keys = torch.sum(keys.view(1, -1, size) * output, 2)
 
             batch_mask = self.create_mask(lengths)
 
