@@ -51,6 +51,7 @@ argparser.add_argument("--gpu", type=int, default=-1)
 argparser.add_argument("--attn", action="store_true", help="by using attention to generate some interpretation")
 argparser.add_argument("--emb_update", action="store_true", help="update embedding")
 argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
+argparser.add_argument("--birdir", action="store_true", help="use bidirectional RNN")
 
 args = argparser.parse_args()
 
@@ -102,8 +103,8 @@ class Model(nn.Module):
             hidden_size,
             depth,
             dropout=args.dropout,
-            bidirectional=False)  # ha...not even bidirectional
-        d_out = hidden_size
+            bidirectional=args.birdir) 
+        d_out = hidden_size if not args.birdir else hidden_size * 2
         self.out = nn.Linear(d_out, nclasses)  # nclasses
         self.embed = nn.Embedding(len(vocab), emb_dim)
         self.embed.weight.data.copy_(vocab.vectors)
