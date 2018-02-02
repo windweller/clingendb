@@ -47,6 +47,7 @@ argparser.add_argument("--seed", type=int, default=123)
 argparser.add_argument("--gpu", type=int, default=-1)
 argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
 argparser.add_argument("--emb_update", action="store_true", help="update embedding")
+argparser.add_argument("--credit_scheme", type=str, default='sum_of_his', help="sum_of_his | max")
 
 args = argparser.parse_args()
 
@@ -96,7 +97,7 @@ class Model(nn.Module):
             dropout=0.2,
             bidirectional=False)  # ha...not even bidirectional
         d_out = hidden_size
-        self.out = nn.Linear(d_out, nclasses, bias=False)
+        self.out = nn.Linear(d_out, nclasses)  # include bias, to prevent bias assignment
         self.embed = nn.Embedding(len(vocab), emb_dim)
         self.embed.weight.data.copy_(vocab.vectors)
         self.embed.weight.requires_grad = True if args.emb_update else False
@@ -104,6 +105,28 @@ class Model(nn.Module):
     def forward(self, input, lengths=None):
         output_vecs = self.get_vectors(input, lengths)
         return self.get_logits(output_vecs)
+
+    def exp_mask(self, val, mask):
+        """Give very negative number to unmasked elements in val.
+        For example, [-3, -2, 10], [True, True, False] -> [-3, -2, -1e9].
+        Typically, this effectively masks in exponential space (e.g. softmax)
+        Args:
+            val: values to be masked
+            mask: masking boolean tensor, same shape as tensor
+            name: name for output tensor
+        Returns:
+            Same shape as val, where some elements are very small (exponentially zero)
+        """
+        exp_mask = Variable((1 - mask) * VERY_NEGATIVE_NUMBER, requires_grad=False)
+        return val + move_to_cuda(exp_mask)
+
+    def create_mask(self, lengths):
+        # lengths would be a python list here, not a Tensor
+        # [max_len, batch_size]
+        masks = np.ones([max(lengths), len(lengths)], dtype='float32')
+        for i, l in enumerate(lengths):
+            masks[l:, i] = 0.
+        return torch.from_numpy(masks)
 
     def get_vectors(self, input, lengths=None):
         embed_input = self.embed(input)
@@ -113,14 +136,14 @@ class Model(nn.Module):
             lengths = lengths.view(-1).tolist()
             packed_emb = nn.utils.rnn.pack_padded_sequence(embed_input, lengths)
 
-        # TODO: investigate what's going on here...
-        # TODO: these hidden states are "padded", 0, should not have label attributed to them
-        # TODO: but in reality...they do!
-
         output, hidden = self.encoder(packed_emb)  # embed_input
 
         if lengths is not None:
             output = unpack(output)[0]
+
+        # MUST apply negative mapping, so max pooling will not take padding elements
+        batch_mask = self.create_mask(lengths)
+        output = self.exp_mask(output, batch_mask)  # now pads will never be chosen...
 
         return output
 
@@ -156,7 +179,43 @@ class Model(nn.Module):
         # then in visualization we can cut it out, meddle however we want
         return n_weight_map
 
-    def get_visualization_tensor(self, output):
+    def get_visualization_tensor_credit_assignment(self, output):
+        # also sum of history...
+
+        seq_len, batch_size, _ = output.size()
+        assignment_dist = torch.zeros(batch_size, seq_len, self.nclasses)
+
+        sent_vec, indices = torch.max(output, 0)
+        n_weight_map = self.get_weight_map(sent_vec)
+
+        votes_dist = torch.zeros(batch_size, seq_len)
+
+        # output: [time_step, batch_size, hidden_dim]
+
+
+
+    def get_visualization_tensor_label_attribution(self, output):
+        # this is sum of history
+
+        # NOTE: this returns a tensor, not a dictionary
+        # each hidden dim / time step's contribution is the sum of all its contribution
+
+        #
+        seq_len, batch_size, _ = output.size()
+        assignment_dist = torch.zeros(batch_size, seq_len, self.nclasses)
+
+        sent_vec, indices = torch.max(output, 0)
+        n_weight_map = self.get_weight_map(sent_vec)
+
+        # here there's no more reassignment...because it's sum of history, one time step can only
+        # vote for one label truly
+        votes_dist = torch.zeros(batch_size, seq_len)
+        records = torch.zeros(batch_size, seq_len)  # how many labels does a word usually vote for
+
+
+
+
+    def get_visualization_tensor_max_assignment(self, output):
         # NOTE: this returns a tensor, not a dictionary
 
         # indices = get_label_attribution()
@@ -213,9 +272,6 @@ class Model(nn.Module):
 
         return assignment_dist, records, reassign_records, votes_dist
 
-    def get_visualization_dic(self, output):
-        # return all assignments to one timestep, it's a dictionary
-        pass
 
 def get_multiclass_recall(preds, y_label):
     # preds: (label_size), y_label; (label_size)
@@ -279,6 +335,7 @@ def eval_model(model, valid_iter, save_pred=False):
     all_orig_texts = []
     all_text_vis = []
 
+    # maximum amount of records would be 256...
     all_records = []  # we record how many times each dimension voted to DIFFERENT candidate/label
     all_reassign_records = []
     all_votes_dist = []
@@ -290,7 +347,7 @@ def eval_model(model, valid_iter, save_pred=False):
         output = model.get_logits(output_vecs)
 
         # (batch_size, time_step, label_dist)
-        label_assignment_tensor, records, reassign_records, votes_dist = model.get_visualization_tensor(output_vecs)
+        label_assignment_tensor, records, reassign_records, votes_dist = model.get_visualization_tensor_max_assignment(output_vecs)
         all_text_vis.extend(label_assignment_tensor.numpy().tolist())
         all_records.extend(records.numpy().tolist())
         all_reassign_records.extend(reassign_records.numpy().tolist())

@@ -37,13 +37,8 @@ argparser.add_argument("--max_epoch", type=int, default=5)
 argparser.add_argument("--d", type=int, default=910)
 argparser.add_argument("--dropout", type=float, default=0.3,
                        help="dropout of word embeddings and softmax output")
-argparser.add_argument("--rnn_dropout", type=float, default=0.2,
-                       help="dropout of RNN layers")
 argparser.add_argument("--depth", type=int, default=1)
 argparser.add_argument("--lr", type=float, default=1.0)
-# argparser.add_argument("--lr_decay", type=float, default=0.98)
-# argparser.add_argument("--lr_decay_epoch", type=int, default=175)
-# argparser.add_argument("--weight_decay", type=float, default=1e-5)
 argparser.add_argument("--clip_grad", type=float, default=5)
 argparser.add_argument("--run_dir", type=str, default='./exp')
 argparser.add_argument("--seed", type=int, default=123)
@@ -107,7 +102,7 @@ class Model(nn.Module):
             dropout=0.2,
             bidirectional=False)  # ha...not even bidirectional
         d_out = hidden_size
-        self.out = nn.Linear(d_out * attn_head, nclasses)
+        self.out = nn.Linear(d_out * attn_head, nclasses, bias=False)
         self.embed = nn.Embedding(len(vocab), emb_dim)
         self.embed.weight.data.copy_(vocab.vectors)
         self.embed.weight.requires_grad = True if args.emb_update else False
@@ -267,7 +262,7 @@ def eval_model(model, valid_iter, save_pred=False):
         loss = criterion(output, y)
         total_loss += loss.data[0] * x.size(1)
 
-        total_sparsity_coherence_cost += total_sparsity_coherence_cost.data[0] * x.size(1)
+        total_sparsity_coherence_cost += sparsity_coherence_cost.data[0] * x.size(1)
 
         preds = output.data.max(1)[1]  # already taking max...I think, max returns a tuple
         correct += preds.eq(y.data).cpu().sum()
@@ -386,6 +381,8 @@ def train_module(model, optimizer,
             valid_sparsity_coherence_cost
         ))
 
+        epoch += 1
+
         if valid_accu > best_valid:
             best_valid = valid_accu
 
@@ -396,7 +393,7 @@ def tokenizer(text):  # create a tokenizer function
     return [tok.text for tok in spacy_en.tokenizer(text)]
 
 
-def init_emb(vocab, init="randn", num_special_toks=2, mode="unk"):
+def init_emb(vocab, init="randn", num_special_toks=2):
     # we can try randn or glorot
     # mode="unk"|"all", all means initialize everything
     emb_vectors = vocab.vectors
