@@ -107,7 +107,7 @@ class Model(nn.Module):
         output_vecs = self.get_vectors(input, lengths)
         return self.get_logits(output_vecs)
 
-    def exp_mask(self, val, mask):
+    def exp_mask(self, val, mask, no_var=False):
         """Give very negative number to unmasked elements in val.
         For example, [-3, -2, 10], [True, True, False] -> [-3, -2, -1e9].
         Typically, this effectively masks in exponential space (e.g. softmax)
@@ -118,7 +118,10 @@ class Model(nn.Module):
         Returns:
             Same shape as val, where some elements are very small (exponentially zero)
         """
-        exp_mask = Variable((1 - mask) * VERY_NEGATIVE_NUMBER, requires_grad=False)
+        if not no_var:
+            exp_mask = Variable((1 - mask) * VERY_NEGATIVE_NUMBER, requires_grad=False)
+        else:
+            exp_mask = (1 - mask) * VERY_NEGATIVE_NUMBER
         return val + move_to_cuda(exp_mask)
 
     def create_mask(self, lengths):
@@ -245,7 +248,8 @@ class Model(nn.Module):
 
         # here, we choose to do local and global normalization, so we return 2 contrib_maps
         # this is only used for global normalization
-        masked_contrib_map = self.exp_mask(contrib_map, mask)
+        masked_contrib_map = self.exp_mask(contrib_map, mask, no_var=True)  # no need to put mask as variable
+        # because contrib_map itself is not variable
 
         # then do local normalization, and multiply by zero_mask to cancel weights from 0 time steps
         # emmm, this is correct
