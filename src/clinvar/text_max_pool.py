@@ -77,6 +77,7 @@ logging.getLogger().addHandler(file_handler)
 
 logger.info(args)
 
+
 def move_to_cuda(th_var):
     if torch.cuda.is_available():
         return th_var.cuda()
@@ -154,14 +155,11 @@ class Model(nn.Module):
     def get_softmax_weight(self):
         return self.out.weight
 
-    def get_label_attribution(self, output):
-        # output: (seq_len, batch_size, vec_dim)
-        # Compute the max but focus on getting the time step
-        indices = torch.max(output, 0)[1]  # (batch_size, vec_dim)
-        # (vec_dim each dim corresponds to the time step) [0 -> time step 5]
-        return indices
+    def get_weight_map(self, sent_vec, normalize='local'):
+        # normalize: 'local' | 'global'
+        # global norm, local select will call this function twice...
+        # Warning: old method, do not use
 
-    def get_weight_map(self, sent_vec):
         # sent_vec: (batch_size, vec_dim)
         s_weight = self.get_softmax_weight()
         # multiply: sent_vec * s_weight
@@ -173,46 +171,91 @@ class Model(nn.Module):
         weight_map = sent_vec.view(-1, 1, self.hidden_size) * s_weight.view(1, self.nclasses, self.hidden_size)
 
         # normalize along label_size
-        n_weight_map = nn.Softmax(dim=1)(weight_map)
+        norm_dim = 1 if normalize == 'local' else 2
+        n_weight_map = nn.Softmax(dim=norm_dim)(weight_map)
 
         # we return for every single time step that's used, a label distribution
         # then in visualization we can cut it out, meddle however we want
         return n_weight_map
 
-    def get_visualization_tensor_credit_assignment(self, output):
+    def get_time_contrib_map(self, sent_vec, indices, batch_size, seq_len):
+        s_weight = self.get_softmax_weight()
+        # s_weight: (hidden_size, n_classes)
+        # sent_vec: (batch_size, hidden_size)
+
+        weight_map = sent_vec.view(-1, self.hidden_size, 1) * s_weight.view(1, self.hidden_size, self.nclasses)
+        # (batch_size, vec_dim, label_size)
+        # note this shape is DIFFERENT from the other method
+        # weight_map is un-normalized
+
+        # this by default gets FloatTensor
+        assignment_dist = torch.zeros(batch_size, seq_len, self.nclasses)
+
+        for b in range(batch_size):
+            # (we just directly sum the influence, if the timestep is already in there!)
+            time_steps = set()
+            for d in range(self.hidden_size):
+                time_step = indices.data.cpu()[b, d]
+                if time_step in time_steps:
+                    # sum of history happens here
+                    assignment_dist[b, time_step, :] += weight_map.data.cpu()[b, d, :]
+                else:
+                    assignment_dist[b, time_step, :] = weight_map.data.cpu()[b, d, :]
+
+        # return (batch, time, label_size), not all time steps are filled up, many are 0
+        return assignment_dist
+
+    def directional_norm(self, contrib_map):
+        # in fact this is just unitize
+        # use non-masked contrib-map
+        b, t, l = contrib_map.size()
+
+        # (batch_size, time, label-size)
+        normed_denom = torch.norm(contrib_map, p=1, dim=1).view(b, 1, l)  # unitize
+        # we should get one summed up value per time dim
+
+        normed_contrib_map = contrib_map / normed_denom
+
+        return normed_contrib_map
+
+    def get_tensor_credit_assignment(self, output):
         # also sum of history...
+        # assign by-label credits, no conflicts
+        # return [batch_size, time_step, label_size]
 
         seq_len, batch_size, _ = output.size()
-        assignment_dist = torch.zeros(batch_size, seq_len, self.nclasses)
 
         sent_vec, indices = torch.max(output, 0)
-        n_weight_map = self.get_weight_map(sent_vec)
+        contrib_map = self.get_time_contrib_map(sent_vec, indices, batch_size, seq_len)
+        normed_contrib_map = self.directional_norm(contrib_map)  # global unitized, now directional!
 
-        votes_dist = torch.zeros(batch_size, seq_len)
+        return normed_contrib_map
 
-        # output: [time_step, batch_size, hidden_dim]
-
-
-
-    def get_visualization_tensor_label_attribution(self, output):
-        # this is sum of history
-
-        # NOTE: this returns a tensor, not a dictionary
-        # each hidden dim / time step's contribution is the sum of all its contribution
-
-        #
+    def get_tensor_label_attr(self, output):
         seq_len, batch_size, _ = output.size()
-        assignment_dist = torch.zeros(batch_size, seq_len, self.nclasses)
 
         sent_vec, indices = torch.max(output, 0)
-        n_weight_map = self.get_weight_map(sent_vec)
+        contrib_map = self.get_time_contrib_map(sent_vec, indices, batch_size, seq_len)
 
-        # here there's no more reassignment...because it's sum of history, one time step can only
-        # vote for one label truly
-        votes_dist = torch.zeros(batch_size, seq_len)
-        records = torch.zeros(batch_size, seq_len)  # how many labels does a word usually vote for
+        # we reuse the exp_mask function, but need to have custom mask
+        mask = (contrib_map != 0.).type(
+            torch.FloatTensor)  # surprisingly your exp_mask function asks mask to indicate what's there...
+        zero_mask = 1 - mask
 
+        # here, we choose to do local and global normalization, so we return 2 contrib_maps
+        # this is only used for global normalization
+        masked_contrib_map = self.exp_mask(contrib_map, mask)
 
+        # then do local normalization, and multiply by zero_mask to cancel weights from 0 time steps
+        # emmm, this is correct
+
+        # (batch, time, label_size)
+        global_normed_contrib_map = torch.nn.Softmax(dim=1)(masked_contrib_map)
+        local_normed_contrib_map = torch.nn.Softmax(dim=2)(masked_contrib_map) # local masks still matter
+        local_normed_contrib_map *= zero_mask  # to make sure [0,0,0] will not be [0.3, 0.3, 0.3]
+        # masked contrib map gives correct weight assignment
+
+        return global_normed_contrib_map, local_normed_contrib_map
 
 
     def get_visualization_tensor_max_assignment(self, output):
@@ -347,7 +390,8 @@ def eval_model(model, valid_iter, save_pred=False):
         output = model.get_logits(output_vecs)
 
         # (batch_size, time_step, label_dist)
-        label_assignment_tensor, records, reassign_records, votes_dist = model.get_visualization_tensor_max_assignment(output_vecs)
+        label_assignment_tensor, records, reassign_records, votes_dist = model.get_visualization_tensor_max_assignment(
+            output_vecs)
         all_text_vis.extend(label_assignment_tensor.numpy().tolist())
         all_records.extend(records.numpy().tolist())
         all_reassign_records.extend(reassign_records.numpy().tolist())
@@ -400,12 +444,14 @@ def eval_model(model, valid_iter, save_pred=False):
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
 
-            for pair in zip(all_preds, all_y_labels, all_orig_texts, all_text_vis, all_records, all_reassign_records, all_votes_dist):
+            for pair in zip(all_preds, all_y_labels, all_orig_texts, all_text_vis, all_records, all_reassign_records,
+                            all_votes_dist):
                 writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2], 'label_vis': pair[3],
                                  'record': pair[4], 'reassign_record': pair[5], 'vote_dist': pair[6]})
 
         with open(pjoin(args.run_dir, 'label_vis_map.json'), 'wb') as f:
-            json.dump([all_preds, all_y_labels, all_orig_texts, all_text_vis, all_records, all_reassign_records, all_votes_dist], f)
+            json.dump([all_preds, all_y_labels, all_orig_texts, all_text_vis, all_records, all_reassign_records,
+                       all_votes_dist], f)
 
         with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
             json.dump(label_list, f)
@@ -463,6 +509,7 @@ def train_module(model, optimizer,
 
         sys.stdout.write("\n")
 
+
 def init_emb(vocab, init="randn", num_special_toks=2):
     # we can try randn or glorot
     # mode="unk"|"all", all means initialize everything
@@ -482,6 +529,7 @@ def init_emb(vocab, init="randn", num_special_toks=2):
         total_words += 1
     logger.info("average GloVE norm is {}, number of known words are {}, total number of words are {}".format(
         running_norm / num_non_zero, num_non_zero, total_words))
+
 
 if __name__ == '__main__':
 
