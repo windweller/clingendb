@@ -143,7 +143,8 @@ class Model(nn.Module):
             output = unpack(output)[0]
 
         # MUST apply negative mapping, so max pooling will not take padding elements
-        batch_mask = self.create_mask(lengths)
+        batch_mask = self.create_mask(lengths)  # (time, batch_size)
+        batch_mask = batch_mask.view(-1, len(lengths), 1)  # not sure if here broadcasting is right
         output = self.exp_mask(output, batch_mask)  # now pads will never be chosen...
 
         return output
