@@ -376,12 +376,16 @@ def eval_model(model, valid_iter, save_pred=False):
     all_preds = []
     all_y_labels = []
     all_orig_texts = []
-    all_text_vis = []
+    # all_text_vis = []
+
+    all_credit_assign = []
+    all_la_global = []
+    all_la_local = []
 
     # maximum amount of records would be 256...
-    all_records = []  # we record how many times each dimension voted to DIFFERENT candidate/label
-    all_reassign_records = []
-    all_votes_dist = []
+    # all_records = []  # we record how many times each dimension voted to DIFFERENT candidate/label
+    # all_reassign_records = []
+    # all_votes_dist = []
 
     for data in valid_iter:
         (x, x_lengths), y = data.Text, data.Description
@@ -390,12 +394,20 @@ def eval_model(model, valid_iter, save_pred=False):
         output = model.get_logits(output_vecs)
 
         # (batch_size, time_step, label_dist)
-        label_assignment_tensor, records, reassign_records, votes_dist = model.get_visualization_tensor_max_assignment(
-            output_vecs)
-        all_text_vis.extend(label_assignment_tensor.numpy().tolist())
-        all_records.extend(records.numpy().tolist())
-        all_reassign_records.extend(reassign_records.numpy().tolist())
-        all_votes_dist.extend(votes_dist.numpy().tolist())
+        # label_assignment_tensor, records, reassign_records, votes_dist = model.get_visualization_tensor_max_assignment(
+        #     output_vecs)
+        # all_text_vis.extend(label_assignment_tensor.numpy().tolist())
+        # all_records.extend(records.numpy().tolist())
+        # all_reassign_records.extend(reassign_records.numpy().tolist())
+        # all_votes_dist.extend(votes_dist.numpy().tolist())
+
+        if save_pred:
+            credit_assign = model.get_tensor_credit_assignment(output_vecs)
+            global_map, local_map = model.get_tensor_label_attr(output_vecs)
+
+            all_credit_assign.extend(credit_assign.numpy().tolist())
+            all_la_global.extend(global_map.numpy().tolist())
+            all_la_local.extend(local_map.numpy().tolist())
 
         loss = criterion(output, y)
         total_loss += loss.data[0] * x.size(1)
@@ -440,18 +452,16 @@ def eval_model(model, valid_iter, save_pred=False):
     if save_pred:
         import csv
         with open(pjoin(args.run_dir, 'confusion_test.csv'), 'wb') as csvfile:
-            fieldnames = ['preds', 'labels', 'text', 'label_vis', 'record', 'reassign_record', 'vote_dist']
+            fieldnames = ['preds', 'labels', 'text', 'credit_assign', 'la_global', 'la_local']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
 
-            for pair in zip(all_preds, all_y_labels, all_orig_texts, all_text_vis, all_records, all_reassign_records,
-                            all_votes_dist):
-                writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2], 'label_vis': pair[3],
-                                 'record': pair[4], 'reassign_record': pair[5], 'vote_dist': pair[6]})
+            for pair in zip(all_preds, all_y_labels, all_orig_texts, all_credit_assign, all_la_global, all_la_local):
+                writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2], 'credit_assign': pair[3],
+                                 'la_global': pair[4], 'la_local': pair[5]})
 
         with open(pjoin(args.run_dir, 'label_vis_map.json'), 'wb') as f:
-            json.dump([all_preds, all_y_labels, all_orig_texts, all_text_vis, all_records, all_reassign_records,
-                       all_votes_dist], f)
+            json.dump([all_preds, all_y_labels, all_orig_texts, all_credit_assign, all_la_global, all_la_local], f)
 
         with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
             json.dump(label_list, f)
