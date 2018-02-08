@@ -182,7 +182,12 @@ class Model(nn.Module):
         # then in visualization we can cut it out, meddle however we want
         return n_weight_map
 
-    def get_time_contrib_map(self, sent_vec, indices, batch_size, seq_len):
+    def get_time_contrib_map(self, output):
+
+        seq_len, batch_size, _ = output.size()
+
+        sent_vec, indices = torch.max(output, 0)
+
         s_weight = self.get_softmax_weight()
         # s_weight: (hidden_size, n_classes)
         # sent_vec: (batch_size, hidden_size)
@@ -222,24 +227,16 @@ class Model(nn.Module):
 
         return normed_contrib_map
 
-    def get_tensor_credit_assignment(self, output):
+    def get_tensor_credit_assignment(self, contrib_map):
         # also sum of history...
         # assign by-label credits, no conflicts
         # return [batch_size, time_step, label_size]
 
-        seq_len, batch_size, _ = output.size()
-
-        sent_vec, indices = torch.max(output, 0)
-        contrib_map = self.get_time_contrib_map(sent_vec, indices, batch_size, seq_len)
         normed_contrib_map = self.directional_norm(contrib_map)  # global unitized, now directional!
 
         return normed_contrib_map
 
-    def get_tensor_label_attr(self, output):
-        seq_len, batch_size, _ = output.size()
-
-        sent_vec, indices = torch.max(output, 0)
-        contrib_map = self.get_time_contrib_map(sent_vec, indices, batch_size, seq_len)
+    def get_tensor_label_attr(self, contrib_map):
 
         # we reuse the exp_mask function, but need to have custom mask
         mask = (contrib_map != 0.).type(
@@ -261,7 +258,6 @@ class Model(nn.Module):
         # masked contrib map gives correct weight assignment
 
         return global_normed_contrib_map, local_normed_contrib_map
-
 
     def get_visualization_tensor_max_assignment(self, output):
         # NOTE: this returns a tensor, not a dictionary
@@ -407,8 +403,9 @@ def eval_model(model, valid_iter, save_pred=False):
         # all_votes_dist.extend(votes_dist.numpy().tolist())
 
         if save_pred:
-            credit_assign = model.get_tensor_credit_assignment(output_vecs)
-            global_map, local_map = model.get_tensor_label_attr(output_vecs)
+            contrib_map = model.get_time_contrib_map(output_vecs)
+            credit_assign = model.get_tensor_credit_assignment(contrib_map)
+            global_map, local_map = model.get_tensor_label_attr(contrib_map)
 
             all_credit_assign.extend(credit_assign.numpy().tolist())
             all_la_global.extend(global_map.numpy().tolist())
