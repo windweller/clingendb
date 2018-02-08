@@ -236,6 +236,21 @@ class Model(nn.Module):
 
         return normed_contrib_map
 
+    def local_normalize(self, contrib_map):
+        # we do local normalization in a dumb way
+        # instead of relying on masking...(need to make it smarter soon)
+        batch_size, time, _ = contrib_map.size()
+        local_norm_contrib_map = torch.zeros(batch_size, time, self.nclasses)
+
+        for b in range(batch_size):
+            # (we just directly sum the influence, if the timestep is already in there!)
+            for t in range(time):
+                # masking would be 5 of these very negative number...
+                if torch.sum(contrib_map[b, t, :]) > VERY_NEGATIVE_NUMBER * self.nclasses:
+                    local_norm_contrib_map[b, t, :] = nn.Softmax()(contrib_map[b, t, :])
+
+        return local_norm_contrib_map
+
     def get_tensor_label_attr(self, contrib_map):
 
         # we reuse the exp_mask function, but need to have custom mask
@@ -253,9 +268,12 @@ class Model(nn.Module):
 
         # (batch, time, label_size)
         global_normed_contrib_map = nn.Softmax(dim=1)(Variable(masked_contrib_map)).data
-        local_normed_contrib_map = nn.Softmax(dim=2)(Variable(masked_contrib_map)).data # local masks still matter
-        local_normed_contrib_map *= zero_mask  # to make sure [0,0,0] will not be [0.3, 0.3, 0.3]
+
+        # local_normed_contrib_map = nn.Softmax(dim=2)(Variable(masked_contrib_map)).data # local masks still matter
+        # local_normed_contrib_map *= zero_mask  # to make sure [0,0,0] will not be [0.3, 0.3, 0.3]
         # masked contrib map gives correct weight assignment
+
+        local_normed_contrib_map = self.local_normalize(masked_contrib_map) # maybe non-masked can work as well
 
         return global_normed_contrib_map, local_normed_contrib_map
 
