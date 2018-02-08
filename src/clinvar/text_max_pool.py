@@ -47,7 +47,6 @@ argparser.add_argument("--seed", type=int, default=123)
 argparser.add_argument("--gpu", type=int, default=-1)
 argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
 argparser.add_argument("--emb_update", action="store_true", help="update embedding")
-argparser.add_argument("--credit_scheme", type=str, default='sum_of_his', help="sum_of_his | max")
 
 args = argparser.parse_args()
 
@@ -256,8 +255,8 @@ class Model(nn.Module):
         # emmm, this is correct
 
         # (batch, time, label_size)
-        global_normed_contrib_map = torch.nn.Softmax(dim=1)(masked_contrib_map)
-        local_normed_contrib_map = torch.nn.Softmax(dim=2)(masked_contrib_map) # local masks still matter
+        global_normed_contrib_map = nn.Softmax(dim=1)(Variable(masked_contrib_map)).data
+        local_normed_contrib_map = nn.Softmax(dim=2)(Variable(masked_contrib_map)).data # local masks still matter
         local_normed_contrib_map *= zero_mask  # to make sure [0,0,0] will not be [0.3, 0.3, 0.3]
         # masked contrib map gives correct weight assignment
 
