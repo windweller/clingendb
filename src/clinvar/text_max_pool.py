@@ -247,7 +247,7 @@ class Model(nn.Module):
             for t in range(time):
                 # masking would be 5 of these very negative number...
                 if torch.sum(contrib_map[b, t, :]) > VERY_NEGATIVE_NUMBER * self.nclasses:
-                    local_norm_contrib_map[b, t, :] = nn.Softmax()(contrib_map[b, t, :])
+                    local_norm_contrib_map[b, t, :] = nn.Softmax()(Variable(contrib_map[b, t, :])).data
 
         return local_norm_contrib_map
 
