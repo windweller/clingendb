@@ -120,9 +120,10 @@ class Model(nn.Module):
         """
         if not no_var:
             exp_mask = Variable((1 - mask) * VERY_NEGATIVE_NUMBER, requires_grad=False)
+            return val + move_to_cuda(exp_mask)
         else:
             exp_mask = (1 - mask) * VERY_NEGATIVE_NUMBER
-        return val + move_to_cuda(exp_mask)
+            return val + exp_mask  # no longer on cuda
 
     def create_mask(self, lengths):
         # lengths would be a python list here, not a Tensor
@@ -523,6 +524,7 @@ def train_module(model, optimizer,
             best_valid = valid_accu
 
         sys.stdout.write("\n")
+        epoch += 1
 
 
 def init_emb(vocab, init="randn", num_special_toks=2):
