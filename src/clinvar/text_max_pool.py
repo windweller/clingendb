@@ -488,7 +488,7 @@ def train_module(model, optimizer,
             model.zero_grad()
             (x, x_lengths), y = data.Text, data.Description
 
-            output = model(x)
+            output = model(x, x_lengths)
 
             loss = criterion(output, y)
             loss.backward()
