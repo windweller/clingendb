@@ -183,6 +183,7 @@ class Model(nn.Module):
         return n_weight_map
 
     def get_time_contrib_map(self, output):
+        # this is getting the C thing
 
         seq_len, batch_size, _ = output.size()
 
@@ -210,6 +211,42 @@ class Model(nn.Module):
                     assignment_dist[b, time_step, :] += weight_map.data.cpu()[b, d, :]
                 else:
                     assignment_dist[b, time_step, :] = weight_map.data.cpu()[b, d, :]
+                    time_steps.add(time_step)  # This was found today...wtf
+
+        # return (batch, time, label_size), not all time steps are filled up, many are 0
+        return assignment_dist
+
+    def get_grad_hidden_states_contrib_map(self, output):
+        # moment of truth!
+        # output = H (T, B, d)
+        seq_len, batch_size, _ = output.size()
+
+        sent_vec, indices = torch.max(output, 0)
+
+        s_weight = self.get_softmax_weight()
+        # s_weight: (hidden_size, n_classes)
+        # sent_vec: (batch_size, hidden_size)
+
+        # Note here we don't multiply with sent_vec, absence of hidden states' own voting
+        weight_map = torch.ones(batch_size, self.hidden_size, 1) * s_weight.view(1, self.hidden_size, self.nclasses)
+        # (batch_size, vec_dim, label_size)
+        # note this shape is DIFFERENT from the other method
+        # weight_map is un-normalized
+
+        # this by default gets FloatTensor
+        assignment_dist = torch.zeros(batch_size, seq_len, self.nclasses)
+
+        for b in range(batch_size):
+            # (we just directly sum the influence, if the timestep is already in there!)
+            time_steps = set()
+            for d in range(self.hidden_size):
+                time_step = indices.data.cpu()[b, d]
+                if time_step in time_steps:
+                    # sum of history happens here
+                    assignment_dist[b, time_step, :] += weight_map.data.cpu()[b, d, :]
+                else:
+                    assignment_dist[b, time_step, :] = weight_map.data.cpu()[b, d, :]
+                    time_steps.add(time_step)  # This was found today...wtf
 
         # return (batch, time, label_size), not all time steps are filled up, many are 0
         return assignment_dist
@@ -257,6 +294,8 @@ class Model(nn.Module):
         mask = (contrib_map != 0.).type(
             torch.FloatTensor)  # surprisingly your exp_mask function asks mask to indicate what's there...
         zero_mask = 1 - mask
+
+        # TODO: maybe the masking is problematic...
 
         # here, we choose to do local and global normalization, so we return 2 contrib_maps
         # this is only used for global normalization
@@ -401,6 +440,10 @@ def eval_model(model, valid_iter, save_pred=False):
     all_la_global = []
     all_la_local = []
 
+    all_grad_credit_assign = []
+    all_grad_la_global = []
+    all_grad_la_local = []
+
     # maximum amount of records would be 256...
     # all_records = []  # we record how many times each dimension voted to DIFFERENT candidate/label
     # all_reassign_records = []
@@ -408,6 +451,11 @@ def eval_model(model, valid_iter, save_pred=False):
 
     for data in valid_iter:
         (x, x_lengths), y = data.Text, data.Description
+
+        # might cause error...we'll see
+        x_lengths.volatile = False
+        x.volatile = False
+        y.volatile = False
 
         output_vecs = model.get_vectors(x, x_lengths)
         output = model.get_logits(output_vecs)
@@ -425,9 +473,22 @@ def eval_model(model, valid_iter, save_pred=False):
             credit_assign = model.get_tensor_credit_assignment(contrib_map)
             global_map, local_map = model.get_tensor_label_attr(contrib_map)
 
+            # add gradient contrib map here, contrib map will have same format
+            # two methods: get contrib map from hidden states
+            # another method: get contrib map from word embeddings (might have errors)
+            hidden_states_grad_contrib_map = model.get_grad_hidden_states_contrib_map(output_vecs)
+            grad_credit_assign = model.get_tensor_credit_assignment(hidden_states_grad_contrib_map)
+            grad_global_map, grad_local_map = model.get_tensor_label_attr(hidden_states_grad_contrib_map)
+
+            # TODO: add word embedding level gradient here
+
             all_credit_assign.extend(credit_assign.numpy().tolist())
             all_la_global.extend(global_map.numpy().tolist())
             all_la_local.extend(local_map.numpy().tolist())
+
+            all_grad_credit_assign.extend(grad_credit_assign.numpy().tolist())
+            all_grad_la_global.extend(grad_global_map.numpy().tolist())
+            all_grad_la_local.extend(grad_local_map.numpy().tolist())
 
         loss = criterion(output, y)
         total_loss += loss.data[0] * x.size(1)
@@ -471,6 +532,7 @@ def eval_model(model, valid_iter, save_pred=False):
 
     if save_pred:
         import csv
+        # we actually never use this...so why storing it?? No need...
         with open(pjoin(args.run_dir, 'confusion_test.csv'), 'wb') as csvfile:
             fieldnames = ['preds', 'labels', 'text', 'credit_assign', 'la_global', 'la_local']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -481,7 +543,8 @@ def eval_model(model, valid_iter, save_pred=False):
                                  'la_global': pair[4], 'la_local': pair[5]})
 
         with open(pjoin(args.run_dir, 'label_vis_map.json'), 'wb') as f:
-            json.dump([all_preds, all_y_labels, all_orig_texts, all_credit_assign, all_la_global, all_la_local], f)
+            json.dump([all_preds, all_y_labels, all_orig_texts, all_credit_assign, all_la_global, all_la_local,
+                       all_grad_credit_assign, all_grad_la_global, all_grad_la_local], f)
 
         with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
             json.dump(label_list, f)
