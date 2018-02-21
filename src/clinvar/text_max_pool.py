@@ -228,7 +228,7 @@ class Model(nn.Module):
         # sent_vec: (batch_size, hidden_size)
 
         # Note here we don't multiply with sent_vec, absence of hidden states' own voting
-        weight_map = Variable(torch.ones(batch_size, self.hidden_size, 1)) * s_weight.view(1, self.hidden_size, self.nclasses)
+        weight_map = move_to_cuda(Variable(torch.ones(batch_size, self.hidden_size, 1))) * s_weight.view(1, self.hidden_size, self.nclasses)
         # (batch_size, vec_dim, label_size)
         # note this shape is DIFFERENT from the other method
         # weight_map is un-normalized
