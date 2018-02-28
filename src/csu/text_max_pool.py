@@ -462,6 +462,7 @@ def eval_model(model, valid_iter, save_pred=False):
         all_preds.append(sparse_preds)
         all_y_labels.append(y.data.cpu().numpy())
 
+        # TODO: this is possibly incorrect?...not that we are using accuracy...
         correct += metrics.accuracy_score(y.data.cpu().numpy(), sparse_preds)
         cnt += 1
 
@@ -513,7 +514,7 @@ def eval_model(model, valid_iter, save_pred=False):
 def train_module(model, optimizer,
                  train_iter, valid_iter, test_iter, max_epoch):
     model.train()
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.BCEWithLogitsLoss()
 
     exp_cost = None
     end_of_epoch = True  # False  # set true because we want immediate feedback...
