@@ -426,8 +426,13 @@ def eval_model(model, valid_iter, save_pred=False):
     # all_reassign_records = []
     # all_votes_dist = []
 
+    iter = 0
     for data in valid_iter:
         (x, x_lengths), y = data.Text, data.Description
+        iter += 1
+
+        if iter % 5 == 0 and save_pred:
+            logger.info("at iteration {}".format(iter))
 
         output_vecs = model.get_vectors(x, x_lengths)
         output = model.get_logits(output_vecs)
@@ -436,9 +441,6 @@ def eval_model(model, valid_iter, save_pred=False):
             # (batch_size, time_step, label_dist)
             label_assignment_tensor = model.get_visualization_tensor_max_assignment(output_vecs)
             all_text_vis.extend(label_assignment_tensor.numpy().tolist())
-            # all_records.extend(records.numpy().tolist())
-            # all_reassign_records.extend(reassign_records.numpy().tolist())
-            # all_votes_dist.extend(votes_dist.numpy().tolist())
 
         # if save_pred:
             # credit_assign = model.get_tensor_credit_assignment(output_vecs)
