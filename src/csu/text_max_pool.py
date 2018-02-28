@@ -284,11 +284,11 @@ class Model(nn.Module):
         n_weight_map = self.get_weight_map(sent_vec)
 
         # we record how many times each dimension voted to DIFFERENT candidate/label
-        records = torch.zeros(batch_size, seq_len)
+        # records = torch.zeros(batch_size, seq_len)
         # records how often we actually reassign when the label changed
-        reassign_records = torch.zeros(batch_size, seq_len)
+        # reassign_records = torch.zeros(batch_size, seq_len)
         # votes distribution: indices (how many votes per word has)
-        votes_dist = torch.zeros(batch_size, seq_len)
+        # votes_dist = torch.zeros(batch_size, seq_len)
 
         # not sure if there's Torch tensor-op that will solve this
         for b in range(batch_size):
@@ -298,7 +298,7 @@ class Model(nn.Module):
                 # get the time_step of each dim
                 time_step = indices.data.cpu()[b, d]
                 # add to votes distributions
-                votes_dist[b, time_step] += 1
+                # votes_dist[b, time_step] += 1
                 if time_step not in time_steps:
                     assignment_dist[b, time_step, :] = n_weight_map.data.cpu()[b, :, d]
                     time_steps.add(time_step)
@@ -318,12 +318,12 @@ class Model(nn.Module):
                         assignment_dist[b, time_step, :] = n_weight_map.data.cpu()[b, :, d]
 
                     # we investigate if this time step voted for a different candidate
-                    if (old_label_index != new_label_index).numpy():
-                        records[b, time_step] += 1  # because it voted for a different label
-                        if (new_max_contribution > old_max_contribution).numpy():
-                            reassign_records[b, time_step] += 1
+                    # if (old_label_index != new_label_index).numpy():
+                    #     records[b, time_step] += 1  # because it voted for a different label
+                    #     if (new_max_contribution > old_max_contribution).numpy():
+                    #         reassign_records[b, time_step] += 1
 
-        return assignment_dist, records, reassign_records, votes_dist
+        return assignment_dist #, records, reassign_records, votes_dist
 
 
 def get_multiclass_recall(preds, y_label):
@@ -434,8 +434,7 @@ def eval_model(model, valid_iter, save_pred=False):
 
         if save_pred:
             # (batch_size, time_step, label_dist)
-            label_assignment_tensor, records, reassign_records, votes_dist = model.get_visualization_tensor_max_assignment(
-                output_vecs)
+            label_assignment_tensor = model.get_visualization_tensor_max_assignment(output_vecs)
             all_text_vis.extend(label_assignment_tensor.numpy().tolist())
             # all_records.extend(records.numpy().tolist())
             # all_reassign_records.extend(reassign_records.numpy().tolist())
