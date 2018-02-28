@@ -552,7 +552,7 @@ def init_emb(vocab, init="randn", num_special_toks=2):
 
 if __name__ == '__main__':
 
-    with open('../../data/clinvar/snomed_labels_to_name.json', 'r') as f:
+    with open('../../data/csu/snomed_labels_to_name.json', 'r') as f:
         labels = json.load(f)
 
     logger.info("available labels are: ")
