@@ -22,6 +22,8 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from torchtext import data
 
+from sklearn import metrics
+
 from util import MultiLabelField, ReversibleField
 
 import logging
@@ -35,7 +37,7 @@ sys.setdefaultencoding('utf-8')
 argparser = argparse.ArgumentParser(sys.argv[0], conflict_handler='resolve')
 argparser.add_argument("--dataset", type=str, default='multi_top_snomed_no_des', help="multi|multi_no_des|multi_top_snomed_no_des, merged is the better one")
 argparser.add_argument("--batch_size", "--batch", type=int, default=32)
-argparser.add_argument("--unroll_size", type=int, default=35)
+argparser.add_argument("--emb_dim", type=int, default=100)
 argparser.add_argument("--max_epoch", type=int, default=5)
 argparser.add_argument("--d", type=int, default=512)
 argparser.add_argument("--dropout", type=float, default=0.3,
@@ -370,11 +372,37 @@ def get_mean_multiclass_accuracy(total_accu):
         new_dict[k] = np.mean(total_accu[k])
     return new_dict
 
+def preds_to_sparse_matrix(indices, batch_size, label_size):
+    # this is for preds
+    # indices will be a list: [[0, 0, 0], [0, 0, 1], ...]
+    labels = np.zeros((batch_size, label_size))
+    for b, l in indices:
+        labels[b, l] = 1.
+    return labels
+
+def output_to_preds(output):
+    return (output > 0.5)
+
+def sparse_one_hot_mat_to_indices(preds):
+    return preds.nonzero()
+
+def condense_preds(indicies, batch_size):
+    # can condense both preds and y
+    a = [[] for _ in range(batch_size)]
+    for b, l in indicies:
+        a[b].append(str(l))
+    condensed_preds = []
+    for labels in a:
+        condensed_preds.append("-".join(labels))
+    assert len(condensed_preds) == len(a)
+
+    return condensed_preds
+
 
 def eval_model(model, valid_iter, save_pred=False):
     # when test_final is true, we save predictions
     model.eval()
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.BCEWithLogitsLoss()
     correct = 0.0
     cnt = 0
     total_loss = 0.0
@@ -385,6 +413,9 @@ def eval_model(model, valid_iter, save_pred=False):
     all_y_labels = []
     all_orig_texts = []
     all_text_vis = []
+
+    all_condensed_preds = []
+    all_condensed_ys = []
 
     # all_credit_assign = []
     # all_la_global = []
@@ -418,61 +449,62 @@ def eval_model(model, valid_iter, save_pred=False):
             # all_la_global.extend(global_map.numpy().tolist())
             # all_la_local.extend(local_map.numpy().tolist())
 
+        batch_size = x.size(1)
+
         loss = criterion(output, y)
         total_loss += loss.data[0] * x.size(1)
-        preds = output.data.max(1)[1]  # already taking max...I think, max returns a tuple
-        correct += preds.eq(y.data).cpu().sum()
-        cnt += y.numel()
+
+        preds = output_to_preds(output)
+        preds_indices = sparse_one_hot_mat_to_indices(preds)
+
+        sparse_preds = preds_to_sparse_matrix(preds_indices.data.cpu().numpy(), batch_size, model.nclasses)
+
+        all_preds.append(sparse_preds)
+        all_y_labels.append(y.data.cpu().numpy())
+
+        correct += metrics.accuracy_score(y.data.cpu().numpy(), sparse_preds)
+        cnt += 1
 
         orig_text = TEXT.reverse(x.data)
         all_orig_texts.extend(orig_text)
 
         if save_pred:
-            all_preds.extend(preds.cpu().numpy().tolist())
-            all_y_labels.extend(y.data.cpu().numpy().tolist())
+            y_indices = sparse_one_hot_mat_to_indices(y)
+            condensed_preds = condense_preds(preds_indices.data.cpu().numpy().tolist(), batch_size)
+            condensed_ys = condense_preds(y_indices.data.cpu().numpy().tolist(), batch_size)
 
-        # compute multiclass
-        labels_recall = get_multiclass_recall(preds.cpu().numpy(), y.data.cpu().numpy())
-        labels_prec = get_multiclass_prec(preds.cpu().numpy(), y.data.cpu().numpy())
-        if total_labels_recall is None:
-            total_labels_recall = labels_recall
-            total_labels_prec = labels_prec
-        else:
-            cumulate_multiclass_accuracy(total_labels_recall, labels_recall)
-            cumulate_multiclass_accuracy(total_labels_prec, labels_prec)
+            all_condensed_preds.extend(condensed_preds)
+            all_condensed_ys.extend(condensed_ys)
 
-            # valid and tests can stop themselves
+    multiclass_f1_msg = 'Multiclass F1 - '
 
-    multiclass_recall_msg = 'Multiclass Recall - '
-    mean_multi_recall = get_mean_multiclass_accuracy(total_labels_recall)
+    preds = np.vstack(all_preds)
+    ys = np.vstack(all_y_labels)
 
-    for k, v in mean_multi_recall.iteritems():
-        multiclass_recall_msg += labels[k] + ": " + str(v) + " "
+    # both should be giant sparse label matrices
+    f1_by_label = metrics.f1_score(ys, preds, average=None)
+    for i, f1_value in enumerate(f1_by_label.tolist()):
+        multiclass_f1_msg += labels[i] + ": " + str(f1_value) + " "
 
-    multiclass_prec_msg = 'Multiclass Precision - '
-    mean_multi_prec = get_mean_multiclass_accuracy(total_labels_prec)
+    logging.info(multiclass_f1_msg)
 
-    for k, v in mean_multi_prec.iteritems():
-        multiclass_prec_msg += labels[k] + ": " + str(v) + " "
-
-    logging.info(multiclass_recall_msg)
-    logging.info(multiclass_prec_msg)
+    logging.info("\n" + metrics.classification_report(ys, preds))
 
     if save_pred:
         import csv
         with open(pjoin(args.run_dir, 'confusion_test.csv'), 'wb') as csvfile:
-            fieldnames = ['preds', 'labels', 'text', 'text_vis']
+            fieldnames = ['preds', 'labels', 'text']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
 
-            for pair in zip(all_preds, all_y_labels, all_orig_texts, all_text_vis):
-                writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2], 'text_vis': pair[3]})
+            for pair in zip(all_condensed_preds, all_condensed_ys, all_orig_texts):
+                writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2]})
 
         with open(pjoin(args.run_dir, 'label_vis_map.json'), 'wb') as f:
-            json.dump([all_preds, all_y_labels, all_orig_texts, all_text_vis], f)
+            json.dump([all_condensed_preds, all_condensed_ys, all_orig_texts, all_text_vis], f)
 
         with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
-            json.dump(label_list, f)
+            json.dump(labels, f)
 
     model.train()
     return correct / cnt
@@ -562,7 +594,7 @@ if __name__ == '__main__':
 
     label_size = 18 if args.dataset != "multi_top_snomed_no_des" else 42
 
-    LABEL = MultiLabelField(sequential=True, use_vocab=False, label_size=18, tensor_type=torch.FloatTensor)
+    LABEL = MultiLabelField(sequential=True, use_vocab=False, label_size=label_size, tensor_type=torch.FloatTensor)
 
     if args.dataset == 'multi':
         train, val, test = data.TabularDataset.splits(
