@@ -64,6 +64,7 @@ argparser.add_argument("--softmax", action="store_true", help="use hierarchical 
 argparser.add_argument("--maxmargin", action="store_true", help="use hierarchical loss")
 
 argparser.add_argument("--proto_str", type=float, default=1e-3, help="a scalar that reduces strength")
+argparser.add_argument("--proto_cos", action="store_true", help="use cosine distance instead of dot product")
 argparser.add_argument("--softmax_str", type=float, default=0.01,
                        help="a scalar controls penalty for not falling in the group")
 
@@ -434,6 +435,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     all_scores = []  # probability to measure uncertainty
     all_preds = []
     all_y_labels = []
+    all_print_y_labels = []
     all_orig_texts = []
     all_text_vis = []
 
@@ -482,7 +484,8 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
 
         sparse_preds = preds_to_sparse_matrix(preds_indices.data.cpu().numpy(), batch_size, model.nclasses)
 
-        all_scores.append(scores)
+        all_scores.extend(scores.tolist())
+        all_print_y_labels.extend(y.data.cpu().numpy().tolist())
         all_preds.append(sparse_preds)
         all_y_labels.append(y.data.cpu().numpy())
 
@@ -528,7 +531,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
                 writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2]})
 
         with open(pjoin(args.run_dir, 'label_vis_map.json'), 'wb') as f:
-            json.dump([all_condensed_preds, all_condensed_ys, all_scores, all_y_labels, all_orig_texts], f)
+            json.dump([all_condensed_preds, all_condensed_ys, all_scores, all_print_y_labels, all_orig_texts], f)
 
         with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
             json.dump(labels, f)
