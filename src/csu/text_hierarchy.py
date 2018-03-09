@@ -65,6 +65,8 @@ argparser.add_argument("--maxmargin", action="store_true", help="use hierarchica
 
 argparser.add_argument("--proto_str", type=float, default=1e-3, help="a scalar that reduces strength")
 argparser.add_argument("--proto_cos", action="store_true", help="use cosine distance instead of dot product")
+argparser.add_argument("--proto_maxout", action="store_true", help="maximize between-group distance")
+argparser.add_argument("--proto_maxin", action="store_true", help="maximize in-group distance")
 argparser.add_argument("--softmax_str", type=float, default=0.01,
                        help="a scalar controls penalty for not falling in the group")
 
@@ -100,6 +102,7 @@ logging.getLogger().addHandler(file_handler)
 
 logger.info(args)
 
+cos_distance = nn.CosineSimilarity(dim=0)
 
 def move_to_cuda(th_var):
     if torch.cuda.is_available():
@@ -587,10 +590,17 @@ def train_module(model, optimizer,
                     grouped_indices = label_grouping[str(meta_i)]
                     for pair_a, pair_b in itertools.combinations(grouped_indices, 2):
                         # compute dot product
-                        hierarchy_penalty += torch.dot(softmax_weight[:, pair_a], softmax_weight[:, pair_b])
+                        if args.proto_cos:
+                            hierarchy_penalty += cos_distance(softmax_weight[:, pair_a], softmax_weight[:, pair_b])
+                        else:
+                            hierarchy_penalty += torch.dot(softmax_weight[:, pair_a], softmax_weight[:, pair_b])
                         proto_count += 1
                 hierarchy_penalty = hierarchy_penalty / proto_count  # average
-                loss = loss.mean() - hierarchy_penalty * args.proto_str  # multiply a scalar, and maximize this value
+                if args.proto_maxin:
+                    # maximize inner distance as well
+                    loss = loss.mean() + hierarchy_penalty * args.proto_str
+                else:
+                    loss = loss.mean() - hierarchy_penalty * args.proto_str  # multiply a scalar, and maximize this value
                 loss.backward()
             elif args.softmax:
                 # if the y has 1. on a dimension, then we flag neighboring as 0.1
