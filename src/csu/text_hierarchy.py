@@ -440,14 +440,12 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     all_condensed_preds = []
     all_condensed_ys = []
 
+    all_meta_preds = []
+    all_meta_y_labels = []
+
     # all_credit_assign = []
     # all_la_global = []
     # all_la_local = []
-
-    # maximum amount of records would be 256...
-    # all_records = []  # we record how many times each dimension voted to DIFFERENT candidate/label
-    # all_reassign_records = []
-    # all_votes_dist = []
 
     iter = 0
     for data in valid_iter:
@@ -468,7 +466,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
             # if save_pred:
             # credit_assign = model.get_tensor_credit_assignment(output_vecs)
             # global_map, local_map = model.get_tensor_label_attr(output_vecs)
-            #
+
             # all_credit_assign.extend(credit_assign.numpy().tolist())
             # all_la_global.extend(global_map.numpy().tolist())
             # all_la_local.extend(local_map.numpy().tolist())
@@ -744,5 +742,5 @@ if __name__ == '__main__':
     train_module(model, optimizer, train_iter, val_iter, test_iter,
                  max_epoch=args.max_epoch)
 
-    test_accu = eval_model(model, test_iter, save_pred=True, save_vis=False)
+    test_accu = eval_model(model, test_iter, save_pred=True, save_viz=False)
     logger.info("final test accu: {}".format(test_accu))
