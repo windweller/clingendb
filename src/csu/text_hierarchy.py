@@ -566,6 +566,8 @@ def train_module(model, optimizer,
     best_valid = 0.
     epoch = 1
 
+    softmax_weight = model.get_softmax_weight()
+
     for n in range(max_epoch):
         for data in train_iter:
             iter += 1
@@ -584,7 +586,7 @@ def train_module(model, optimizer,
                     grouped_indices = label_grouping[str(meta_i)]
                     for pair_a, pair_b in itertools.combinations(grouped_indices, 2):
                         # compute dot product
-                        hierarchy_penalty += torch.dot(pair_a, pair_b)
+                        hierarchy_penalty += torch.dot(softmax_weight[:, pair_a], softmax_weight[:, pair_b])
                         proto_count += 1
                 hierarchy_penalty = hierarchy_penalty / proto_count  # average
                 loss = loss.sum() + hierarchy_penalty * args.proto_str  # multiply a scalar
