@@ -589,17 +589,17 @@ def train_module(model, optimizer,
                         hierarchy_penalty += torch.dot(softmax_weight[:, pair_a], softmax_weight[:, pair_b])
                         proto_count += 1
                 hierarchy_penalty = hierarchy_penalty / proto_count  # average
-                loss = loss.sum() + hierarchy_penalty * args.proto_str  # multiply a scalar
+                loss = loss.mean() + hierarchy_penalty * args.proto_str  # multiply a scalar
                 loss.backward()
             elif args.softmax:
                 # if the y has 1. on a dimension, then we flag neighboring as 0.1
                 # this is kinda like label smoothing almost, guaranteed to learn better
                 # Note: correct label might go over 1 if neighbor nodes occur
                 new_y = torch.matmul(y, neighbor_mat)  # TODO: double-check on its correctness
-                loss = criterion(output, new_y).sum()
+                loss = criterion(output, new_y).mean()
                 loss.backward()
             else:
-                loss = loss.sum()
+                loss = loss.mean()
                 loss.backward()
 
             torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
