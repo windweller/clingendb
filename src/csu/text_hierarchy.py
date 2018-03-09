@@ -661,10 +661,12 @@ if __name__ == '__main__':
         # if a label in a group appears together, we are over-adding. From 1 to 1.2
 
         # be careful of row/column
-        neighbor_mat = np.zeros((len(neighbor_maps), len(neighbor_maps)))
+        neighbor_mat_np = np.zeros((len(neighbor_maps), len(neighbor_maps)))
         for nei_i in range(len(neighbor_maps)):
             ns = neighbor_maps[str(nei_i)]
-            neighbor_mat[nei_i][ns] = 0.01  # args.softmax_str
+            neighbor_mat_np[nei_i][ns] = 0.01  # args.softmax_str
+
+        neighbor_mat = Variable(torch.from_numpy(neighbor_mat_np), requires_grad=False)
 
     with open('../../data/csu/snomed_label_to_meta_grouping.json', 'rb') as f:
         label_grouping = json.load(f)
