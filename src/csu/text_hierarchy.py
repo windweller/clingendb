@@ -654,7 +654,7 @@ def init_emb(vocab, init="randn", num_special_toks=2):
 
 if __name__ == '__main__':
 
-    with open('../../data/csu/snomed_label_to_meta_neighbors.json', 'wb') as f:
+    with open('../../data/csu/snomed_label_to_meta_neighbors.json', 'rb') as f:
         neighbor_maps = json.load(f)
         # {0: [12, 34, 13]}
         # turn this into neighbor matrices.
@@ -667,12 +667,12 @@ if __name__ == '__main__':
             ns = neighbor_maps[nei_i]
             neighbor_mat[nei_i][ns] = 0.01  # args.softmax_str
 
-    with open('../../data/csu/snomed_label_to_meta_grouping.json', 'wb') as f:
+    with open('../../data/csu/snomed_label_to_meta_grouping.json', 'rb') as f:
         label_grouping = json.load(f)
         # {0: [12, 34, 13],
         meta_label_size = len(label_grouping)
 
-    with open('../../data/csu/snomed_label_to_meta_map.json', 'wb') as f:
+    with open('../../data/csu/snomed_label_to_meta_map.json', 'rb') as f:
         meta_label_mapping = json.load(f)
         # {42: 14} maps snomed_indexed_label -> meta_labels
 
