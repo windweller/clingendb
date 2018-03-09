@@ -518,9 +518,6 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     logging.info("\n" + metrics.classification_report(ys, preds))
 
     if save_pred:
-        # TODO: 1. the normalized probability score for each label
-        # TODO: 2. correct label
-        # TODO: 3. correct meta-group label
         # So the format for each entry is: y = [], pred = [], for all labels
         # we also need
         import csv
@@ -584,7 +581,7 @@ def train_module(model, optimizer,
                 proto_count = 0.
                 # prototype constraints are pair-wise dot product (cosine similarities)
                 for meta_i in range(meta_label_size):
-                    grouped_indices = label_grouping[meta_i]
+                    grouped_indices = label_grouping[str(meta_i)]
                     for pair_a, pair_b in itertools.combinations(grouped_indices, 2):
                         # compute dot product
                         hierarchy_penalty += torch.dot(pair_a, pair_b)
