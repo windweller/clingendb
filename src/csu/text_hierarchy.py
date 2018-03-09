@@ -664,7 +664,7 @@ if __name__ == '__main__':
         # be careful of row/column
         neighbor_mat = np.zeros((len(neighbor_maps), len(neighbor_maps)))
         for nei_i in range(len(neighbor_maps)):
-            ns = neighbor_maps[nei_i]
+            ns = neighbor_maps[str(nei_i)]
             neighbor_mat[nei_i][ns] = 0.01  # args.softmax_str
 
     with open('../../data/csu/snomed_label_to_meta_grouping.json', 'rb') as f:
