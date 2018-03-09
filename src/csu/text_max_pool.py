@@ -653,5 +653,5 @@ if __name__ == '__main__':
     train_module(model, optimizer, train_iter, val_iter, test_iter,
                  max_epoch=args.max_epoch)
 
-    test_accu = eval_model(model, test_iter, save_pred=True)
+    test_accu = eval_model(model, test_iter, save_pred=False)
     logger.info("final test accu: {}".format(test_accu))
