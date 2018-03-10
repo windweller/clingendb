@@ -58,7 +58,7 @@ argparser.add_argument("--seed", type=int, default=123)
 argparser.add_argument("--gpu", type=int, default=-1)
 argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
 argparser.add_argument("--emb_update", action="store_true", help="update embedding")
-argparser.add_argument("--l2_penalty_softmax", action="store_true", help="add L2 penalty on softmax weight matrices")
+argparser.add_argument("--l2_penalty_softmax", type=float, default=1e-3, help="add L2 penalty on softmax weight matrices")
 argparser.add_argument("--l2_str", type=float, default=0, help="a scalar that reduces strength") # 1e-3
 
 argparser.add_argument("--prototype", action="store_true", help="use hierarchical loss")
@@ -605,6 +605,10 @@ def train_module(model, optimizer,
                     loss = loss.mean() + hierarchy_penalty * args.proto_str
                 else:
                     loss = loss.mean() - hierarchy_penalty * args.proto_str  # multiply a scalar, and maximize this value
+
+                # add L2 penalty on prototype vectors
+                loss += softmax_weight.norm(2, dim=0).sum() * args.l2_penalty_softmax
+
                 loss.backward()
             elif args.softmax:
                 # if the y has 1. on a dimension, then we flag neighboring as 0.1
