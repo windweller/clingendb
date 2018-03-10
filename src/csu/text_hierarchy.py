@@ -58,6 +58,8 @@ argparser.add_argument("--seed", type=int, default=123)
 argparser.add_argument("--gpu", type=int, default=-1)
 argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
 argparser.add_argument("--emb_update", action="store_true", help="update embedding")
+argparser.add_argument("--l2_penalty_softmax", action="store_true", help="add L2 penalty on softmax weight matrices")
+argparser.add_argument("--l2_str", type=float, default=0, help="a scalar that reduces strength") # 1e-3
 
 argparser.add_argument("--prototype", action="store_true", help="use hierarchical loss")
 argparser.add_argument("--softmax", action="store_true", help="use hierarchical loss")
@@ -103,6 +105,8 @@ logging.getLogger().addHandler(file_handler)
 logger.info(args)
 
 cos_distance = nn.CosineSimilarity(dim=0)
+
+# l1_crit =
 
 def move_to_cuda(th_var):
     if torch.cuda.is_available():
@@ -748,7 +752,7 @@ if __name__ == '__main__':
     need_grad = lambda x: x.requires_grad
     optimizer = optim.Adam(
         filter(need_grad, model.parameters()),
-        lr=0.001)
+        lr=0.001, weight_decay=args.l2_str)
     # optimizer = optim.SGD(
     #     filter(need_grad, model.parameters()),
     #     lr=0.01)
