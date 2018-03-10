@@ -615,7 +615,7 @@ def train_module(model, optimizer,
                 loss = criterion(output, new_y).mean()
                 loss.backward()
             else:
-                loss = criterion(output, new_y).mean()
+                loss = criterion(output, y).mean()
                 loss.backward()
 
             torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
