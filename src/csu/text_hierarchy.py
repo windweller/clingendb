@@ -104,7 +104,7 @@ logging.getLogger().addHandler(file_handler)
 
 logger.info(args)
 
-cos_distance = nn.CosineSimilarity(dim=0)
+cos_sim = nn.CosineSimilarity(dim=0)
 
 # l1_crit =
 
@@ -595,7 +595,8 @@ def train_module(model, optimizer,
                     for pair_a, pair_b in itertools.combinations(grouped_indices, 2):
                         # compute dot product
                         if args.proto_cos:
-                            hierarchy_penalty += cos_distance(softmax_weight[:, pair_a], softmax_weight[:, pair_b])
+                            # dist = 1 - cos_sim
+                            hierarchy_penalty += 1 - cos_sim(softmax_weight[:, pair_a], softmax_weight[:, pair_b])
                         else:
                             hierarchy_penalty += torch.dot(softmax_weight[:, pair_a], softmax_weight[:, pair_b])
                         proto_count += 1
