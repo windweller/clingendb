@@ -441,11 +441,11 @@ def generate_meta_y(indices, meta_label_size, batch_size):
     matched = defaultdict(set)
     for b, l in indices:
         if b not in matched:
-            a[b, meta_label_mapping[l]] = 1.
-            matched[b].add(meta_label_mapping[l])
-        elif meta_label_mapping[l] not in matched[b]:
-            a[b, meta_label_mapping[l]] = 1.
-            matched[b].add(meta_label_mapping[l])
+            a[b, meta_label_mapping[str(l)]] = 1.
+            matched[b].add(meta_label_mapping[str(l)])
+        elif meta_label_mapping[str(l)] not in matched[b]:
+            a[b, meta_label_mapping[str(l)]] = 1.
+            matched[b].add(meta_label_mapping[str(l)])
 
     assert np.sum(a <= 1) == a.size
 
@@ -631,7 +631,7 @@ def train_module(model, optimizer,
                     loss = loss.mean() - hierarchy_penalty * args.proto_str  # multiply a scalar, and maximize this value
 
                 # add L2 penalty on prototype vectors
-                # loss += softmax_weight.norm(2, dim=0).sum() * args.l2_penalty_softmax
+                # loss += softmax_weight.norm(2, dim=0).sum() * args.generate
 
                 # instead of
                 loss += softmax_weight.pow(2).sum() / 2 * args.l2_penalty_softmax
