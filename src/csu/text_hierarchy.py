@@ -28,7 +28,7 @@ from torchtext import data
 
 from sklearn import metrics
 
-from util import MultiLabelField, ReversibleField, BCEWithLogitsLoss
+from util import MultiLabelField, ReversibleField, BCEWithLogitsLoss, MultiMarginHierarchyLoss
 
 import logging
 import itertools
@@ -417,17 +417,15 @@ def spread_by_meta_y(y, indices):
         if meta_label not in matched[b]:
             neighbors = copy.copy(neighbor_maps[str(l)])
 
-            if len(neighbors) == 0:
-                continue
+            if len(neighbors) != 0:
+                # this is preventing a top-label can have > 1 probability
+                for n in neighbors:
+                    if n in snomed_label:
+                        neighbors.remove(n)
 
-            # this is preventing a top-label can have > 1 probability
-            for n in neighbors:
-                if n in snomed_label:
-                    neighbors.remove(n)
-
-            y[:, neighbors] = args.softmax_reward # 0.1
-            matched[b].add(meta_label)  # in this batched example, this meta label is flagged
-            # in an alternative setting, we can let it add :) as long as they are below 1
+                y[:, neighbors] = args.softmax_reward # 0.1
+                matched[b].add(meta_label)  # in this batched example, this meta label is flagged
+                # in an alternative setting, we can let it add :) as long as they are below 1
 
     assert torch.sum(y <= 1).data == y.size(0) * y.size(1)
     return y
@@ -571,6 +569,8 @@ def train_module(model, optimizer,
     criterion = BCEWithLogitsLoss(reduce=False)
     meta_criterion = nn.BCELoss()
 
+    margin_criterion = MultiMarginHierarchyLoss()
+
     exp_cost = None
     end_of_epoch = True  # False  # set true because we want immediate feedback...
     iter = 0
@@ -656,6 +656,7 @@ def train_module(model, optimizer,
             elif args.max_margin:
                 pass
                 # nn.MultiMarginLoss
+                # margin_criterion(output, y, label_size)
             else:
                 loss = criterion(output, y).mean()
                 loss.backward()
