@@ -640,7 +640,7 @@ def train_module(model, optimizer,
                 loss += meta_loss * args.softmax_str
                 loss.backward()
 
-            elif args.softmax_double:
+            elif args.softmax_partial:
                 # if the y has 1. on a dimension, then we flag neighboring as 0.1
                 # this is kinda like label smoothing almost, guaranteed to learn better
                 # Note: correct label might go over 1 if neighbor nodes occur
@@ -649,7 +649,7 @@ def train_module(model, optimizer,
 
                 loss = criterion(output, new_y).mean()
                 loss.backward()
-                
+
             elif args.max_margin:
                 pass
             else:
