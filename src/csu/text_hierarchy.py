@@ -435,6 +435,7 @@ def condense_preds(indices, batch_size):
 
     return condensed_preds
 
+
 # I think this is good now.
 def generate_meta_y(indices, meta_label_size, batch_size):
     a = np.array([[0.] * meta_label_size for _ in range(batch_size)], dtype=np.float32)
@@ -450,6 +451,10 @@ def generate_meta_y(indices, meta_label_size, batch_size):
     assert np.sum(a <= 1) == a.size
 
     return a
+
+def spread_by_meta_y(y, indices, batch_size):
+    # indices are still those where y labels exist
+    matched = defaultdict(set)
 
 
 def eval_model(model, valid_iter, save_pred=False, save_viz=False):
@@ -633,7 +638,7 @@ def train_module(model, optimizer,
                 # add L2 penalty on prototype vectors
                 # loss += softmax_weight.norm(2, dim=0).sum() * args.generate
 
-                # instead of
+                # instead, we do TensorFlow convention
                 loss += softmax_weight.pow(2).sum() / 2 * args.l2_penalty_softmax
 
                 loss.backward()
@@ -650,9 +655,9 @@ def train_module(model, optimizer,
                 # generate meta-label
                 y_indices = sparse_one_hot_mat_to_indices(y)
                 meta_y = generate_meta_y(y_indices.data.cpu().numpy().tolist(), meta_label_size, batch_size)
-                meta_y = move_to_cuda(Variable(meta_y))
+                meta_y = move_to_cuda(Variable(torch.from_numpy(meta_y)))
 
-                loss = criterion(output, y).mean() # original loss
+                loss = criterion(output, y).mean()  # original loss
                 meta_loss = meta_criterion(meta_probs, meta_y)
                 loss += meta_loss * args.softmax_str
                 loss.backward()
