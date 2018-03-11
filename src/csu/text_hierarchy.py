@@ -36,6 +36,8 @@ import itertools
 import sys
 import json
 
+from collections import defaultdict
+
 reload(sys)
 sys.setdefaultencoding('utf-8')
 
@@ -58,18 +60,19 @@ argparser.add_argument("--seed", type=int, default=123)
 argparser.add_argument("--gpu", type=int, default=-1)
 argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
 argparser.add_argument("--emb_update", action="store_true", help="update embedding")
-argparser.add_argument("--l2_penalty_softmax", type=float, default=1e-3, help="add L2 penalty on softmax weight matrices")
-argparser.add_argument("--l2_str", type=float, default=0, help="a scalar that reduces strength") # 1e-3
+argparser.add_argument("--l2_penalty_softmax", type=float, default=0., help="add L2 penalty on softmax weight matrices")
+argparser.add_argument("--l2_str", type=float, default=0, help="a scalar that reduces strength")  # 1e-3
 
 argparser.add_argument("--prototype", action="store_true", help="use hierarchical loss")
-argparser.add_argument("--softmax", action="store_true", help="use hierarchical loss")
-argparser.add_argument("--maxmargin", action="store_true", help="use hierarchical loss")
+argparser.add_argument("--softmax_hier", action="store_true", help="use hierarchical loss")
+argparser.add_argument("--softmax_partial", action="store_true", help="use hierarchical loss")
+argparser.add_argument("--max_margin", action="store_true", help="use hierarchical loss")
 
 argparser.add_argument("--proto_str", type=float, default=1e-3, help="a scalar that reduces strength")
 argparser.add_argument("--proto_cos", action="store_true", help="use cosine distance instead of dot product")
 argparser.add_argument("--proto_maxout", action="store_true", help="maximize between-group distance")
 argparser.add_argument("--proto_maxin", action="store_true", help="maximize in-group distance")
-argparser.add_argument("--softmax_str", type=float, default=0.01,
+argparser.add_argument("--softmax_str", type=float, default=1e-2,
                        help="a scalar controls penalty for not falling in the group")
 
 # 1. Softmax loss penalty is basically duplicating the "label"..and count loss twice
@@ -105,6 +108,7 @@ logging.getLogger().addHandler(file_handler)
 logger.info(args)
 
 cos_sim = nn.CosineSimilarity(dim=0)
+
 
 # l1_crit =
 
@@ -406,8 +410,10 @@ def preds_to_sparse_matrix(indices, batch_size, label_size):
         labels[b, l] = 1.
     return labels
 
+
 def output_to_prob(output):
     return torch.sigmoid(output)
+
 
 def output_to_preds(output):
     return (torch.sigmoid(output) > 0.5)
@@ -417,10 +423,10 @@ def sparse_one_hot_mat_to_indices(preds):
     return preds.nonzero()
 
 
-def condense_preds(indicies, batch_size):
+def condense_preds(indices, batch_size):
     # can condense both preds and y
     a = [[] for _ in range(batch_size)]
-    for b, l in indicies:
+    for b, l in indices:
         a[b].append(str(l))
     condensed_preds = []
     for labels in a:
@@ -428,6 +434,22 @@ def condense_preds(indicies, batch_size):
     assert len(condensed_preds) == len(a)
 
     return condensed_preds
+
+# I think this is good now.
+def generate_meta_y(indices, meta_label_size, batch_size):
+    a = np.array([[0.] * meta_label_size for _ in range(batch_size)], dtype=np.float32)
+    matched = defaultdict(set)
+    for b, l in indices:
+        if b not in matched:
+            a[b, meta_label_mapping[l]] = 1.
+            matched[b].add(meta_label_mapping[l])
+        elif meta_label_mapping[l] not in matched[b]:
+            a[b, meta_label_mapping[l]] = 1.
+            matched[b].add(meta_label_mapping[l])
+
+    assert np.sum(a <= 1) == a.size
+
+    return a
 
 
 def eval_model(model, valid_iter, save_pred=False, save_viz=False):
@@ -567,6 +589,7 @@ def train_module(model, optimizer,
                  train_iter, valid_iter, test_iter, max_epoch):
     model.train()
     criterion = BCEWithLogitsLoss(reduce=False)
+    meta_criterion = nn.BCELoss()
 
     exp_cost = None
     end_of_epoch = True  # False  # set true because we want immediate feedback...
@@ -611,14 +634,34 @@ def train_module(model, optimizer,
                 loss += softmax_weight.norm(2, dim=0).sum() * args.l2_penalty_softmax
 
                 loss.backward()
-            elif args.softmax:
+            elif args.softmax_hier:
+                # compute loss for the higher level
+                snomed_probs = output_to_prob(output)  # (Batch, n_classes)
+                batch_size = x.size(1)
+                meta_probs = move_to_cuda(Variable(torch.zeros(batch_size, meta_label_size)))
+
+                # sum these prob into meta group
+                for i, group in enumerate(label_grouping):
+                    meta_probs[:, i] = snomed_probs[:, group].sum(1)  # sum through the group, batch_size is left
+
+                # generate meta-label
+                y_indices = sparse_one_hot_mat_to_indices(y)
+                meta_y = generate_meta_y(y_indices.data.cpu().numpy().tolist(), meta_label_size, batch_size)
+                meta_y = move_to_cuda(Variable(meta_y))
+
+                loss = criterion(output, y).mean() # original loss
+                meta_loss = meta_criterion(meta_probs, meta_y)
+                loss += meta_loss * args.softmax_str
+                loss.backward()
+
+            elif args.softmax_double:
                 # if the y has 1. on a dimension, then we flag neighboring as 0.1
                 # this is kinda like label smoothing almost, guaranteed to learn better
                 # Note: correct label might go over 1 if neighbor nodes occur
-                new_y = torch.matmul(y, neighbor_mat)  # TODO: double-check on its correctness
 
-                loss = criterion(output, new_y).mean()
-                loss.backward()
+                pass
+            elif args.max_margin:
+                pass
             else:
                 loss = criterion(output, y).mean()
                 loss.backward()
