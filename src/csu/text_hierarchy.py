@@ -416,6 +416,8 @@ def spread_by_meta_y(y, indices):
         snomed_label.add(l)
         if meta_label not in matched[b]:
             neighbors = copy.copy(neighbor_maps[str(l)])
+            if len(neighbors) == 0:
+                continue
 
             # this is preventing a top-label can have > 1 probability
             for n in neighbors:
@@ -652,6 +654,7 @@ def train_module(model, optimizer,
 
             elif args.max_margin:
                 pass
+                # nn.MultiMarginLoss
             else:
                 loss = criterion(output, y).mean()
                 loss.backward()
