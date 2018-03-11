@@ -416,6 +416,7 @@ def spread_by_meta_y(y, indices):
         snomed_label.add(l)
         if meta_label not in matched[b]:
             neighbors = copy.copy(neighbor_maps[str(l)])
+
             if len(neighbors) == 0:
                 continue
 
