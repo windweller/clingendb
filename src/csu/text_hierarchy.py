@@ -645,7 +645,7 @@ def train_module(model, optimizer,
                 # this is kinda like label smoothing almost, guaranteed to learn better
                 # Note: correct label might go over 1 if neighbor nodes occur
                 y_indices = sparse_one_hot_mat_to_indices(y)
-                new_y = spread_by_meta_y(y, y_indices)
+                new_y = spread_by_meta_y(y, y_indices.data.cpu().numpy().tolist())
 
                 loss = criterion(output, new_y).mean()
                 loss.backward()
