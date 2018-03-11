@@ -631,7 +631,10 @@ def train_module(model, optimizer,
                     loss = loss.mean() - hierarchy_penalty * args.proto_str  # multiply a scalar, and maximize this value
 
                 # add L2 penalty on prototype vectors
-                loss += softmax_weight.norm(2, dim=0).sum() * args.l2_penalty_softmax
+                # loss += softmax_weight.norm(2, dim=0).sum() * args.l2_penalty_softmax
+
+                # instead of
+                loss += softmax_weight.pow(2).sum() / 2 * args.l2_penalty_softmax
 
                 loss.backward()
             elif args.softmax_hier:
