@@ -74,6 +74,8 @@ argparser.add_argument("--proto_maxout", action="store_true", help="maximize bet
 argparser.add_argument("--proto_maxin", action="store_true", help="maximize in-group distance")
 argparser.add_argument("--softmax_str", type=float, default=1e-2,
                        help="a scalar controls penalty for not falling in the group")
+argparser.add_argument("--softmax_reward", type=float, default=0.1,
+                       help="a scalar controls penalty for not falling in the group")
 
 # 1. Softmax loss penalty is basically duplicating the "label"..and count loss twice
 # 2. Prototype loss penalty is adding a closeness constraints (very natrual)
@@ -354,54 +356,6 @@ class Model(nn.Module):
 
         return assignment_dist  # , records, reassign_records, votes_dist
 
-
-def get_multiclass_recall(preds, y_label):
-    # preds: (label_size), y_label; (label_size)
-    label_cat = range(len(labels))
-    labels_accu = {}
-
-    for la in label_cat:
-        # for each label, we get the index of the correct labels
-        idx_of_cat = y_label == la
-        cat_preds = preds[idx_of_cat]
-        if cat_preds.size != 0:
-            accu = np.mean(cat_preds == la)
-            labels_accu[la] = [accu]
-        else:
-            labels_accu[la] = []
-
-    return labels_accu
-
-
-def get_multiclass_prec(preds, y_label):
-    label_cat = range(len(labels))
-    labels_accu = {}
-
-    for la in label_cat:
-        # for each label, we get the index of predictions
-        idx_of_cat = preds == la
-        cat_preds = y_label[idx_of_cat]  # ground truth
-        if cat_preds.size != 0:
-            accu = np.mean(cat_preds == la)
-            labels_accu[la] = [accu]
-        else:
-            labels_accu[la] = []
-
-    return labels_accu
-
-
-def cumulate_multiclass_accuracy(total_accu, labels_accu):
-    for k, v in labels_accu.iteritems():
-        total_accu[k].extend(v)
-
-
-def get_mean_multiclass_accuracy(total_accu):
-    new_dict = {}
-    for k, v in total_accu.iteritems():
-        new_dict[k] = np.mean(total_accu[k])
-    return new_dict
-
-
 def preds_to_sparse_matrix(indices, batch_size, label_size):
     # this is for preds
     # indices will be a list: [[0, 0, 0], [0, 0, 1], ...]
@@ -452,10 +406,28 @@ def generate_meta_y(indices, meta_label_size, batch_size):
 
     return a
 
-def spread_by_meta_y(y, indices, batch_size):
+import copy
+def spread_by_meta_y(y, indices):
     # indices are still those where y labels exist
     matched = defaultdict(set)
+    snomed_label = set()
+    for b, l in indices:
+        meta_label = meta_label_mapping[str(l)]
+        snomed_label.add(l)
+        if meta_label not in matched[b]:
+            neighbors = copy.copy(neighbor_maps[str(l)])
 
+            # this is preventing a top-label can have > 1 probability
+            for n in neighbors:
+                if n in snomed_label:
+                    neighbors.remove(n)
+
+            y[:, neighbors] = args.softmax_reward # 0.1
+            matched[b].add(meta_label)  # in this batched example, this meta label is flagged
+            # in an alternative setting, we can let it add :) as long as they are below 1
+
+    assert torch.sum(y <= 1).data == y.size(0) * y.size(1)
+    return y
 
 def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     # when test_final is true, we save predictions
@@ -655,6 +627,8 @@ def train_module(model, optimizer,
                 meta_probs = torch.stack(meta_probs, dim=1)
 
                 assert meta_probs.size(1) == meta_label_size
+                # the below check will NOT pass
+                assert torch.sum(meta_probs <= 1) == meta_probs.size(0) * meta_probs.size(1)
 
                 # generate meta-label
                 y_indices = sparse_one_hot_mat_to_indices(y)
@@ -670,8 +644,12 @@ def train_module(model, optimizer,
                 # if the y has 1. on a dimension, then we flag neighboring as 0.1
                 # this is kinda like label smoothing almost, guaranteed to learn better
                 # Note: correct label might go over 1 if neighbor nodes occur
+                y_indices = sparse_one_hot_mat_to_indices(y)
+                new_y = spread_by_meta_y(y, y_indices)
 
-                pass
+                loss = criterion(output, new_y).mean()
+                loss.backward()
+                
             elif args.max_margin:
                 pass
             else:
