@@ -646,11 +646,15 @@ def train_module(model, optimizer,
                 # compute loss for the higher level
                 snomed_probs = output_to_prob(output)  # (Batch, n_classes)
                 batch_size = x.size(1)
-                meta_probs = move_to_cuda(Variable(torch.zeros(batch_size, meta_label_size)))
+                meta_probs = []
 
                 # sum these prob into meta group
                 for i in range(meta_label_size):
-                    meta_probs[:, i] = snomed_probs[:, label_grouping[str(i)]].sum(1)  # sum through the group, batch_size is left
+                    meta_probs.append(snomed_probs[:, label_grouping[str(i)]].sum(1))  # sum through the group, batch_size is left
+
+                meta_probs = torch.stack(meta_probs, dim=1)
+
+                assert meta_probs.size(1) == meta_label_size
 
                 # generate meta-label
                 y_indices = sparse_one_hot_mat_to_indices(y)
