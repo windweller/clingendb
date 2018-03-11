@@ -8,6 +8,46 @@ from torch.autograd import Variable
 from torchtext.data.dataset import Dataset
 from torch.nn import Module
 
+class MultiMarginHierarchyLoss(Module):
+    r"""Creates a criterion that optimizes a multi-class classification hinge
+    loss (margin-based loss) between input `x` (a 2D mini-batch `Tensor`) and
+    output `y` (which is a 1D tensor of target class indices,
+    `0` <= `y` <= `x.size(1)`):
+
+    For each mini-batch sample::
+
+        loss(x, y) = sum_i(max(0, (margin - x[y] + x[i]))^p) / x.size(0)
+                     where `i == 0` to `x.size(0)` and `i != y`.
+
+    Optionally, you can give non-equal weighting on the classes by passing
+    a 1D `weight` tensor into the constructor.
+
+    The loss function then becomes:
+
+        loss(x, y) = sum_i(max(0, w[y] * (margin - x[y] - x[i]))^p) / x.size(0)
+
+    By default, the losses are averaged over observations for each minibatch.
+    However, if the field `size_average` is set to ``False``,
+    the losses are instead summed.
+    """
+
+    def __init__(self, p=1, margin=1, weight=None, size_average=True):
+        super(MultiMarginHierarchyLoss, self).__init__()
+        if p != 1 and p != 2:
+            raise ValueError("only p == 1 and p == 2 supported")
+        assert weight is None or weight.dim() == 1
+        self.p = p
+        self.margin = margin
+        self.size_average = size_average
+        self.weight = weight
+
+    def forward(self, input, target, class_size):
+        # return multi_margin_loss(input, target, self.p, self.margin,
+        #                          self.weight, self.size_average)
+        for i in range(class_size):
+            pass
+        return
+
 
 # we also implement the latest BCELoss without reduction
 
