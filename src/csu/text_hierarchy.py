@@ -641,8 +641,8 @@ def train_module(model, optimizer,
                 meta_probs = move_to_cuda(Variable(torch.zeros(batch_size, meta_label_size)))
 
                 # sum these prob into meta group
-                for i, group in enumerate(label_grouping):
-                    meta_probs[:, i] = snomed_probs[:, group].sum(1)  # sum through the group, batch_size is left
+                for i in range(meta_label_size):
+                    meta_probs[:, i] = snomed_probs[:, label_grouping[str(i)]].sum(1)  # sum through the group, batch_size is left
 
                 # generate meta-label
                 y_indices = sparse_one_hot_mat_to_indices(y)
