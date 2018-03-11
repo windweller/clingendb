@@ -415,13 +415,12 @@ def spread_by_meta_y(y, indices):
         meta_label = meta_label_mapping[str(l)]
         snomed_label.add(l)
         if meta_label not in matched[b]:
-            neighbors = copy.copy(neighbor_maps[str(l)])
+            neighbors = neighbor_maps[str(l)]
 
             if len(neighbors) != 0:
+                assert len(neighbors) > 0
                 # this is preventing a top-label can have > 1 probability
-                for n in neighbors:
-                    if n in snomed_label:
-                        neighbors.remove(n)
+                neighbors = [n for n in neighbors if n not in snomed_label]
 
                 y[:, neighbors] = args.softmax_reward # 0.1
                 matched[b].add(meta_label)  # in this batched example, this meta label is flagged
