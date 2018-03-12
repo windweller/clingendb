@@ -625,7 +625,7 @@ def train_module(model, optimizer,
                 if args.softmax_hier_sum_prob:
                     snomed_values = output_to_prob(output)
                 elif args.softmax_hier_sum_logit: # this should be our default approach
-                    snomed_values = torch.max(output, Variable(torch.zeros(1)))  # max(x, 0)
+                    snomed_values = torch.max(output, move_to_cuda(Variable(torch.zeros(1))))  # max(x, 0)
                 else:
                     raise Exception("Must flag softmax_hier_sum_prob or softmax_hier_sum_logit")
 
