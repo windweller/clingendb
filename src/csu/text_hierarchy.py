@@ -69,6 +69,7 @@ argparser.add_argument("--softmax_partial", action="store_true", help="use hiera
 argparser.add_argument("--max_margin", action="store_true", help="use hierarchical loss")
 
 argparser.add_argument("--proto_str", type=float, default=1e-3, help="a scalar that reduces strength")
+argparser.add_argument("--proto_out_str", type=float, default=1e-3, help="a scalar that reduces strength")
 argparser.add_argument("--proto_cos", action="store_true", help="use cosine distance instead of dot product")
 argparser.add_argument("--proto_maxout", action="store_true", help="maximize between-group distance")
 argparser.add_argument("--proto_maxin", action="store_true", help="maximize in-group distance")
@@ -590,7 +591,8 @@ def train_module(model, optimizer,
 
             if args.prototype:
                 loss = criterion(output, y)
-                hierarchy_penalty = 0.
+                hierarchy_inner_penalty = 0.
+                hierarchy_outer_penalty = 0.
                 proto_count = 0.
                 # prototype constraints are pair-wise dot product (cosine similarities)
                 for meta_i in range(meta_label_size):
@@ -599,16 +601,22 @@ def train_module(model, optimizer,
                         # compute dot product
                         if args.proto_cos:
                             # dist = 1 - cos_sim
-                            hierarchy_penalty += 1 - cos_sim(softmax_weight[:, pair_a], softmax_weight[:, pair_b])
+                            hierarchy_inner_penalty += 1 - cos_sim(softmax_weight[:, pair_a], softmax_weight[:, pair_b])
                         else:
-                            hierarchy_penalty += torch.dot(softmax_weight[:, pair_a], softmax_weight[:, pair_b])
+                            hierarchy_inner_penalty += torch.dot(softmax_weight[:, pair_a], softmax_weight[:, pair_b])
                         proto_count += 1
-                hierarchy_penalty = hierarchy_penalty / proto_count  # average
+                hierarchy_inner_penalty = hierarchy_inner_penalty / proto_count  # average
+                for label_j in range(label_size):
+                    non_neighbor_indices = non_neighbor_maps[str(label_j)]
+                    outer_vec = torch.sum(softmax_weight[:, non_neighbor_indices]) / len(non_neighbor_indices)
+                    hierarchy_outer_penalty += torch.dot(softmax_weight[:, label_j], outer_vec)
+
                 if args.proto_maxin:
                     # maximize inner distance as well
-                    loss = loss.mean() + hierarchy_penalty * args.proto_str
+                    loss = loss.mean() + hierarchy_inner_penalty * args.proto_str
                 else:
-                    loss = loss.mean() - hierarchy_penalty * args.proto_str  # multiply a scalar, and maximize this value
+                    # multiply a scalar, and maximize this value
+                    loss = loss.mean() - hierarchy_inner_penalty * args.proto_str + hierarchy_outer_penalty * args.proto_out_str
 
                 # add L2 penalty on prototype vectors
                 # loss += softmax_weight.norm(2, dim=0).sum() * args.generate
@@ -737,6 +745,9 @@ if __name__ == '__main__':
             neighbor_mat_np[nei_i][ns] = 0.01  # args.softmax_str
 
         neighbor_mat = move_to_cuda(Variable(torch.from_numpy(neighbor_mat_np), requires_grad=False))
+
+    with open('../../data/csu/snomed_label_to_meta_non_neighbors.json', 'rb') as f:
+        non_neighbor_maps = json.load(f)
 
     with open('../../data/csu/snomed_label_to_meta_grouping.json', 'rb') as f:
         label_grouping = json.load(f)
