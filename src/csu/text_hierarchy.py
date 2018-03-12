@@ -606,10 +606,13 @@ def train_module(model, optimizer,
                             hierarchy_inner_penalty += torch.dot(softmax_weight[:, pair_a], softmax_weight[:, pair_b])
                         proto_count += 1
                 hierarchy_inner_penalty = hierarchy_inner_penalty / proto_count  # average
-                for label_j in range(label_size):
-                    non_neighbor_indices = non_neighbor_maps[str(label_j)]
-                    outer_vec = torch.sum(softmax_weight[:, non_neighbor_indices]) / len(non_neighbor_indices)
-                    hierarchy_outer_penalty += torch.dot(softmax_weight[:, label_j], outer_vec)
+
+                if args.proto_maxout:
+                    # we only compute it when it has max_out flag
+                    for label_j in range(label_size):
+                        non_neighbor_indices = non_neighbor_maps[str(label_j)]
+                        outer_vec = torch.sum(softmax_weight[:, non_neighbor_indices]) / len(non_neighbor_indices)
+                        hierarchy_outer_penalty += torch.dot(softmax_weight[:, label_j], outer_vec)
 
                 if args.proto_maxin:
                     # maximize inner distance as well
