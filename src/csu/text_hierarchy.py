@@ -76,6 +76,9 @@ argparser.add_argument("--softmax_str", type=float, default=1e-2,
                        help="a scalar controls penalty for not falling in the group")
 argparser.add_argument("--softmax_reward", type=float, default=0.1,
                        help="a scalar controls penalty for not falling in the group")
+argparser.add_argument("--softmax_hier_sum_prob", action="store_true", help="use hierarchical loss")
+argparser.add_argument("--softmax_hier_sum_logit", action="store_true", help="use hierarchical loss")
+
 
 # 1. Softmax loss penalty is basically duplicating the "label"..and count loss twice
 # 2. Prototype loss penalty is adding a closeness constraints (very natrual)
@@ -421,11 +424,11 @@ def spread_by_meta_y(y, indices):
             neighbors = [n for n in neighbors if n not in snomed_label]
 
             if len(neighbors) > 0:
-                y[:, neighbors] = args.softmax_reward # 0.1
+                y[:, neighbors] = args.softmax_reward  # 0.1 # might be += instead of =
                 matched[b].add(meta_label)  # in this batched example, this meta label is flagged
                 # in an alternative setting, we can let it add :) as long as they are below 1
 
-    assert torch.sum(y <= 1).data == y.size(0) * y.size(1)
+    y = torch.clamp(y, max=1., min=0.)
     return y
 
 def eval_model(model, valid_iter, save_pred=False, save_viz=False):
@@ -566,7 +569,6 @@ def train_module(model, optimizer,
     model.train()
     criterion = BCEWithLogitsLoss(reduce=False)
     meta_criterion = nn.BCELoss()
-
     margin_criterion = MultiMarginHierarchyLoss()
 
     exp_cost = None
@@ -617,19 +619,30 @@ def train_module(model, optimizer,
                 loss.backward()
             elif args.softmax_hier:
                 # compute loss for the higher level
-                snomed_probs = output_to_prob(output)  # (Batch, n_classes)
+                #   # (Batch, n_classes)
+
+                # this is now logit, not
+                if args.softmax_hier_sum_prob:
+                    snomed_values = output_to_prob(output)
+                elif args.softmax_hier_sum_logit: # this should be our default approach
+                    snomed_values = torch.max(output, Variable(torch.zeros(1)))  # max(x, 0)
+                else:
+                    raise Exception("Must flag softmax_hier_sum_prob or softmax_hier_sum_logit")
+
                 batch_size = x.size(1)
                 meta_probs = []
 
                 # sum these prob into meta group
                 for i in range(meta_label_size):
-                    meta_probs.append(snomed_probs[:, label_grouping[str(i)]].sum(1))  # sum through the group, batch_size is left
+                    meta_probs.append(snomed_values[:, label_grouping[str(i)]].sum(1))  # sum through the group, batch_size is left
 
                 meta_probs = torch.stack(meta_probs, dim=1)
 
                 assert meta_probs.size(1) == meta_label_size
-                # the below check will NOT pass
-                assert torch.sum(meta_probs <= 1) == meta_probs.size(0) * meta_probs.size(1)
+
+                # clamp everything to be between 0 and 1 for prob
+                if args.softmax_hier_sum_prob:
+                    meta_probs = torch.clamp(meta_probs, min=0., max=1.)
 
                 # generate meta-label
                 y_indices = sparse_one_hot_mat_to_indices(y)
@@ -637,7 +650,7 @@ def train_module(model, optimizer,
                 meta_y = move_to_cuda(Variable(torch.from_numpy(meta_y)))
 
                 loss = criterion(output, y).mean()  # original loss
-                meta_loss = meta_criterion(meta_probs, meta_y)
+                meta_loss = criterion(meta_probs, meta_y).mean()  # hierarchy loss
                 loss += meta_loss * args.softmax_str
                 loss.backward()
 
