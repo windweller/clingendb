@@ -611,7 +611,7 @@ def train_module(model, optimizer,
                     # we only compute it when it has max_out flag
                     for label_j in range(label_size):
                         non_neighbor_indices = non_neighbor_maps[str(label_j)]
-                        outer_vec = torch.sum(softmax_weight[:, non_neighbor_indices]) / len(non_neighbor_indices)
+                        outer_vec = torch.sum(softmax_weight[:, non_neighbor_indices], dim=1) / len(non_neighbor_indices)
                         hierarchy_outer_penalty += torch.dot(softmax_weight[:, label_j], outer_vec)
 
                 if args.proto_maxin:
