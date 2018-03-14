@@ -42,8 +42,8 @@ reload(sys)
 sys.setdefaultencoding('utf-8')
 
 argparser = argparse.ArgumentParser(sys.argv[0], conflict_handler='resolve')
-argparser.add_argument("--dataset", type=str, default='multi_top_snomed_no_des',
-                       help="multi|multi_no_des|multi_top_snomed_no_des, merged is the better one")
+argparser.add_argument("--dataset", type=str, default='multi_top_snomed_adjusted_no_des',
+                       help="multi_top_snomed_no_des|multi_top_snomed_adjusted_no_des, merged is the better one")
 argparser.add_argument("--batch_size", "--batch", type=int, default=32)
 argparser.add_argument("--emb_dim", type=int, default=100)
 argparser.add_argument("--max_epoch", type=int, default=5)
@@ -566,7 +566,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
 
 
 def train_module(model, optimizer,
-                 train_iter, valid_iter, test_iter, max_epoch):
+                 train_iter, valid_iter, max_epoch):
     model.train()
     criterion = BCEWithLogitsLoss(reduce=False)
     meta_criterion = nn.BCELoss()
@@ -769,27 +769,21 @@ if __name__ == '__main__':
 
     TEXT = ReversibleField(sequential=True, include_lengths=True, lower=False)
 
-    label_size = 18 if args.dataset != "multi_top_snomed_no_des" else 42
+    label_size = 42 # 18 if args.dataset != "multi_top_snomed_no_des" else 42
 
     LABEL = MultiLabelField(sequential=True, use_vocab=False, label_size=label_size, tensor_type=torch.FloatTensor)
 
-    if args.dataset == 'multi':
-        train, val, test = data.TabularDataset.splits(
-            path='../../data/csu/', train='multi_label_train.tsv',
-            validation='multi_label_valid.tsv',
-            test='multi_label_test.tsv', format='tsv',
-            fields=[('Text', TEXT), ('Description', LABEL)])
-    elif args.dataset == 'multi_no_des':
-        train, val, test = data.TabularDataset.splits(
-            path='../../data/csu/', train='multi_label_no_des_train.tsv',
-            validation='multi_label_no_des_valid.tsv',
-            test='multi_label_no_des_test.tsv', format='tsv',
-            fields=[('Text', TEXT), ('Description', LABEL)])
-    elif args.dataset == 'multi_top_snomed_no_des':
+    if args.dataset == 'multi_top_snomed_no_des':
         train, val, test = data.TabularDataset.splits(
             path='../../data/csu/', train='snomed_multi_label_no_des_train.tsv',
             validation='snomed_multi_label_no_des_valid.tsv',
             test='snomed_multi_label_no_des_test.tsv', format='tsv',
+            fields=[('Text', TEXT), ('Description', LABEL)])
+    elif args.dataset == 'multi_top_snomed_adjusted_no_des':
+        train, val, test = data.TabularDataset.splits(
+            path='../../data/csu/', train='snomed_adjusted_multi_label_no_des_train.tsv',
+            validation='snomed_adjusted_multi_label_no_des_valid.tsv',
+            test='snomed_adjusted_multi_label_no_des_test.tsv', format='tsv',
             fields=[('Text', TEXT), ('Description', LABEL)])
 
     # actually, this is the first point of improvement: load in clinical embedding instead!!!
@@ -825,7 +819,7 @@ if __name__ == '__main__':
     #     filter(need_grad, model.parameters()),
     #     lr=0.01)
 
-    train_module(model, optimizer, train_iter, val_iter, test_iter,
+    train_module(model, optimizer, train_iter, val_iter,
                  max_epoch=args.max_epoch)
 
     test_accu = eval_model(model, test_iter, save_pred=True, save_viz=False)

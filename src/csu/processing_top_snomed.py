@@ -29,6 +29,7 @@ assert (sum([split_proportions[split] for split in split_proportions]) == 1)
 
 print("the data split is: {}".format(split_proportions))
 
+inflating_test_set = True
 
 # maybe not predicting 17 (it's a catch-all disease)
 
@@ -152,18 +153,74 @@ if __name__ == '__main__':
         "train/valid/test number of examples: {}/{}/{}".format(len(train_numbers), len(valid_numbers),
                                                                len(test_numbers)))
 
+    # ======== Code to inflate the test set =========
+    # label_id -> how many to move from train to test
+    label_adjustment = {
+        13: 30,  # 430 in total
+        12: 20,
+        11: 20,
+        10: 15,
+        9: 15,
+        8: 10,
+        7: 10,
+        6: 5,
+        5: 3
+    }
+
+    from collections import defaultdict
+    label_collected = defaultdict(int)
+
+    adjusted_train_numbers = []
+    adjusted_test_numbers = test_numbers
+
+    # adjustment phase
+    for t_n in train_numbers:
+        # iterate through training examples and find labels we want
+        train_inst = examples[t_n]
+        mapped_labels = [label_list.index(l) for l in train_inst[1].split()]
+        l = list(set(mapped_labels).intersection(set(label_adjustment.keys())))
+        if len(l) != 0:
+            decide_to_add = False
+            for label in l:
+                # for one label that's above
+                if label_adjustment[label] - label_collected[label] > 0:
+                    # add to shifted
+                    decide_to_add = True
+                    break
+            if decide_to_add:
+                for label in l:
+                    label_collected[label] += 1
+                adjusted_test_numbers.append(t_n)
+            else:
+                adjusted_train_numbers.append(t_n)  # add back to train if we have enough
+        else:
+            adjusted_train_numbers.append(t_n)
+
+    print(
+        "adjusted train/valid/test number of examples: {}/{}/{}".format(len(adjusted_train_numbers),
+                                                                        len(valid_numbers),
+                                                               len(adjusted_test_numbers)))
+
     train, valid, test = [], [], []
 
-    for tn in train_numbers:
-        train.append(examples[tn])
-    for tn in valid_numbers:
-        valid.append(examples[tn])
-    for tn in test_numbers:
-        test.append(examples[tn])
+    if not inflating_test_set:
+        for tn in train_numbers:
+            train.append(examples[tn])
+        for tn in valid_numbers:
+            valid.append(examples[tn])
+        for tn in test_numbers:
+            test.append(examples[tn])
+    else:
+        for tn in adjusted_train_numbers:
+            train.append(examples[tn])
+        for tn in valid_numbers:
+            valid.append(examples[tn])
+        for tn in adjusted_test_numbers:
+            test.append(examples[tn])
 
-    write_to_tsv(train, "../../data/csu/snomed_multi_label_no_des_train.tsv", label_list)
-    write_to_tsv(valid, "../../data/csu/snomed_multi_label_no_des_valid.tsv", label_list)
-    write_to_tsv(test, "../../data/csu/snomed_multi_label_no_des_test.tsv", label_list)
+    write_to_tsv(train, "../../data/csu/snomed_adjusted_multi_label_no_des_train.tsv", label_list)
+    write_to_tsv(valid, "../../data/csu/snomed_adjusted_multi_label_no_des_valid.tsv", label_list)
+    write_to_tsv(test, "../../data/csu/snomed_adjusted_multi_label_no_des_test.tsv", label_list)
 
     import json
     with open('../../data/csu/snomed_labels.json', 'wb') as f:
