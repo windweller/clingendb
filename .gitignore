@@ -1,6 +1,19 @@
 # Created by .ignore support plugin (hsz.mobi)
 
 .ipynb_checkpoints
+.idea
+data
+*.ipynb
+*.txt
+*.csv
+*.sh
+src/crawler
+src/clinvar/exp/
+*.pptx
+src/csu/exp
+src/clinvar/.vector_cache
+notebooks
+extractor
 
 ### Python template
 # Byte-compiled / optimized / DLL files
