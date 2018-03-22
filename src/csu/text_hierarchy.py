@@ -77,8 +77,10 @@ argparser.add_argument("--softmax_str", type=float, default=1e-2,
                        help="a scalar controls penalty for not falling in the group")
 argparser.add_argument("--softmax_reward", type=float, default=0.1,
                        help="a scalar controls penalty for not falling in the group")
-argparser.add_argument("--softmax_hier_sum_prob", action="store_true", help="use hierarchical loss")
+argparser.add_argument("--softmax_hier_prod_prob", action="store_true", help="use hierarchical loss")
 argparser.add_argument("--softmax_hier_sum_logit", action="store_true", help="use hierarchical loss")
+argparser.add_argument("--max_margin_neighbor", type=float, default=0.5,
+                       help="maximum should be 1., ")
 
 
 # 1. Softmax loss penalty is basically duplicating the "label"..and count loss twice
@@ -410,7 +412,7 @@ def generate_meta_y(indices, meta_label_size, batch_size):
 
     return a
 
-import copy
+# TODO: this might be wrong. Because if prototype constraints work, this should work as well
 def spread_by_meta_y(y, indices):
     # indices are still those where y labels exist
     matched = defaultdict(set)
@@ -436,7 +438,6 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     # when test_final is true, we save predictions
     model.eval()
     criterion = BCEWithLogitsLoss()
-    # torch.nn.MultiLabelMarginLoss
     correct = 0.0
     cnt = 0
     total_loss = 0.0
@@ -498,6 +499,11 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
         all_preds.append(sparse_preds)
         all_y_labels.append(y.data.cpu().numpy())
 
+        # Generate meta-y labels and meta-level predictions
+        # meta-y label is:
+        # meta_y = generate_meta_y(y_indices.data.cpu().numpy().tolist(), meta_label_size, batch_size)
+        # meta-level prediction needs additional code
+
         # TODO: this is possibly incorrect?...not that we are using accuracy...
         correct += metrics.accuracy_score(y.data.cpu().numpy(), sparse_preds)
         cnt += 1
@@ -525,6 +531,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
 
     logging.info(multiclass_f1_msg)
 
+    # both are only true if it's for test, this saves sysout
     logging.info("\n" + metrics.classification_report(ys, preds))
 
     if save_pred:
@@ -564,13 +571,14 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     model.train()
     return correct / cnt
 
+prob_threshold = nn.Threshold(1e-5, 0)
 
 def train_module(model, optimizer,
                  train_iter, valid_iter, max_epoch):
     model.train()
     criterion = BCEWithLogitsLoss(reduce=False)
     meta_criterion = nn.BCELoss()
-    margin_criterion = MultiMarginHierarchyLoss()
+    margin_criterion = MultiMarginHierarchyLoss(neighbor_maps, class_size=label_size)
 
     exp_cost = None
     end_of_epoch = True  # False  # set true because we want immediate feedback...
@@ -587,7 +595,7 @@ def train_module(model, optimizer,
             model.zero_grad()
             (x, x_lengths), y = data.Text, data.Description
 
-            output = model(x, x_lengths)
+            output = model(x, x_lengths)  # this is just logit (before calling sigmoid)
 
             if args.prototype:
                 loss = criterion(output, y)
@@ -633,7 +641,7 @@ def train_module(model, optimizer,
                 #   # (Batch, n_classes)
 
                 # this is now logit, not
-                if args.softmax_hier_sum_prob:
+                if args.softmax_hier_prod_prob:
                     snomed_values = output_to_prob(output)
                 elif args.softmax_hier_sum_logit: # this should be our default approach
                     snomed_values = torch.max(output, move_to_cuda(Variable(torch.zeros(1))))  # max(x, 0)
@@ -645,14 +653,20 @@ def train_module(model, optimizer,
 
                 # sum these prob into meta group
                 for i in range(meta_label_size):
-                    meta_probs.append(snomed_values[:, label_grouping[str(i)]].sum(1))  # sum through the group, batch_size is left
+                    if args.softmax_hier_sum_logit:
+                        meta_probs.append(snomed_values[:, label_grouping[str(i)]].sum(1))
+                    elif args.softmax_hier_prod_prob:
+                        # 1 - (1 - p_1)(...)(1 - p_n)
+                        meta_prob = (1 - snomed_values[:, label_grouping[str(i)]]).prod(1)
+                        # threshold at 1e-5
+                        meta_probs.append(prob_threshold(meta_prob))  # we don't want really small probability
 
                 meta_probs = torch.stack(meta_probs, dim=1)
 
                 assert meta_probs.size(1) == meta_label_size
 
                 # clamp everything to be between 0 and 1 for prob
-                if args.softmax_hier_sum_prob:
+                if args.softmax_hier_prod_prob:
                     meta_probs = torch.clamp(meta_probs, min=0., max=1.)
 
                 # generate meta-label
@@ -666,6 +680,8 @@ def train_module(model, optimizer,
                 loss.backward()
 
             elif args.softmax_partial:
+                # Note: this actually doesn't work
+
                 # if the y has 1. on a dimension, then we flag neighboring as 0.1
                 # this is kinda like label smoothing almost, guaranteed to learn better
                 # Note: correct label might go over 1 if neighbor nodes occur
@@ -678,7 +694,7 @@ def train_module(model, optimizer,
             elif args.max_margin:
                 pass
                 # nn.MultiMarginLoss
-                # margin_criterion(output, y, label_size)
+                # margin_criterion(output, y)
             else:
                 loss = criterion(output, y).mean()
                 loss.backward()
