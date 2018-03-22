@@ -213,12 +213,14 @@ class Model(nn.Module):
             # (seq_len, batch_size, label_size)
             keys = torch.matmul(output_vec, self.task_queries)
 
+            seq_len, batch_size = lengths.size()
+
             # (seq_len, batch_size)
             batch_mask = self.create_mask(lengths)
             exp_mask = Variable((1 - batch_mask) * VERY_NEGATIVE_NUMBER, requires_grad=False)
 
             # masked_keys = keys * Variable(move_to_cuda(batch_mask.unsqueeze(2)))
-            keys += move_to_cuda(exp_mask).unsqueeze(2) # (seq_len, batch_size, 1)
+            keys += move_to_cuda(exp_mask).view(seq_len, batch_size, 1) # (seq_len, batch_size, 1)
 
             # (seq_len, batch_size, label_size)
             keys = self.normalize(keys)  # softmax normalization with attention
@@ -230,7 +232,7 @@ class Model(nn.Module):
                 # (seq_len, batch_size, hid_dim) x (seq_len, batch_size, 1)
                 # sum over 0
                 # (batch_size, hid_dim)
-                task_specific_list.append(torch.squeeze(torch.sum(output_vec * keys[:, :, t_n].unsqueeze(2), 0)))
+                task_specific_list.append(torch.squeeze(torch.sum(output_vec * keys[:, :, t_n].view(seq_len, batch_size, 1), 0)))
 
             # now it's (batch_size, label_size, hid_dim)
             task_specific_mix = torch.stack(task_specific_list, dim=1)
@@ -244,7 +246,7 @@ class Model(nn.Module):
             # (batch_size, label_size, hid_dim) * (1, label_size, hid_dim) -> label embedding
             # sum over hid_dim
             # squeeze possible (batch_size, label_size, 1)
-            output = torch.squeeze(torch.sum(task_specific_mix * self.out_proj.unsqueeze(0), 2))
+            output = torch.squeeze(torch.sum(task_specific_mix * self.out_proj.view(1, label_size, -1), 2))
 
             return output
 
