@@ -8,6 +8,7 @@ from torch.autograd import Variable
 from torchtext.data.dataset import Dataset
 from torch.nn import Module
 
+
 class MultiMarginHierarchyLoss(Module):
     r"""Creates a criterion that optimizes a multi-class classification hinge
     loss (margin-based loss) between input `x` (a 2D mini-batch `Tensor`) and
@@ -31,21 +32,34 @@ class MultiMarginHierarchyLoss(Module):
     the losses are instead summed.
     """
 
-    def __init__(self, p=1, margin=1, weight=None, size_average=True):
+    def __init__(self, neighbor_maps, class_size=2, p=1, neighbor_margin=0.5,
+                 margin=1, weight=None, size_average=True):
         super(MultiMarginHierarchyLoss, self).__init__()
         if p != 1 and p != 2:
             raise ValueError("only p == 1 and p == 2 supported")
         assert weight is None or weight.dim() == 1
+        self.class_size = class_size
+        self.neighbor_maps = neighbor_maps
+        self.neighbor_margin = neighbor_margin
         self.p = p
         self.margin = margin
         self.size_average = size_average
         self.weight = weight
 
-    def forward(self, input, target, class_size):
+    def forward(self, input, target):
         # return multi_margin_loss(input, target, self.p, self.margin,
         #                          self.weight, self.size_average)
-        for i in range(class_size):
-            pass
+        batch_size = input.size(0)
+        y_indices = target.nonzero()
+        for b in xrange(batch_size):
+            tgt_labels = y_indices[b, :]
+            l = [self.neighbor_maps[str(tgt_label)] for tgt_label in tgt_labels]
+            neighbor_inds = [item for sublist in l for item in sublist]  # for entire group
+
+            # compute loss
+            for i in xrange(self.class_size):
+                pass
+
         return
 
 
