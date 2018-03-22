@@ -76,9 +76,8 @@ argparser.add_argument("--proto_maxout", action="store_true", help="maximize bet
 argparser.add_argument("--proto_maxin", action="store_true", help="maximize in-group distance")
 argparser.add_argument("--softmax_str", type=float, default=1e-2,
                        help="a scalar controls penalty for not falling in the group")
-argparser.add_argument("--softmax_reward", type=float, default=0.1,
-                       help="a scalar controls penalty for not falling in the group")
-argparser.add_argument("--softmax_hier_sum_prob", action="store_true", help="use hierarchical loss")
+argparser.add_argument("--softmax_hier_prod_prob", action="store_true", help="use hierarchical loss, instead of sum, "
+                                                                            "we do it correctly, product instead")
 argparser.add_argument("--softmax_hier_sum_logit", action="store_true", help="use hierarchical loss")
 argparser.add_argument("--max_margin_neighbor", type=float, default=0.5,
                        help="maximum should be 1., ")
@@ -455,28 +454,6 @@ def generate_meta_y(indices, meta_label_size, batch_size):
 
     return a
 
-# TODO: this might be wrong. Because if prototype constraints work, this should work as well
-def spread_by_meta_y(y, indices):
-    # indices are still those where y labels exist
-    matched = defaultdict(set)
-    snomed_label = set()
-    for b, l in indices:
-        meta_label = meta_label_mapping[str(l)]
-        snomed_label.add(l)
-        if meta_label not in matched[b]:
-            neighbors = neighbor_maps[str(l)]
-
-            # this is preventing a top-label can have > 1 probability
-            neighbors = [n for n in neighbors if n not in snomed_label]
-
-            if len(neighbors) > 0:
-                y[:, neighbors] = args.softmax_reward  # 0.1 # might be += instead of =
-                matched[b].add(meta_label)  # in this batched example, this meta label is flagged
-                # in an alternative setting, we can let it add :) as long as they are below 1
-
-    y = torch.clamp(y, max=1., min=0.)
-    return y
-
 def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     # when test_final is true, we save predictions
     model.eval()
@@ -614,6 +591,8 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     model.train()
     return correct / cnt
 
+# ignore probability smaller than 1e-5 0.00001 <-> 0.01%
+prob_threshold = nn.Threshold(1e-5, 0)
 
 def train_module(model, optimizer,
                  train_iter, valid_iter, max_epoch):
@@ -683,7 +662,7 @@ def train_module(model, optimizer,
                 #   # (Batch, n_classes)
 
                 # this is now logit, not
-                if args.softmax_hier_sum_prob:
+                if args.softmax_hier_prod_prob:
                     snomed_values = output_to_prob(output)
                 elif args.softmax_hier_sum_logit: # this should be our default approach
                     snomed_values = torch.max(output, move_to_cuda(Variable(torch.zeros(1))))  # max(x, 0)
@@ -695,13 +674,19 @@ def train_module(model, optimizer,
 
                 # sum these prob into meta group
                 for i in range(meta_label_size):
-                    meta_probs.append(snomed_values[:, label_grouping[str(i)]].sum(1))  # sum through the group, batch_size is left
+                    if args.softmax_hier_sum_logit:
+                        meta_probs.append(snomed_values[:, label_grouping[str(i)]].sum(1))
+                    elif args.softmax_hier_prod_prob:
+                        # 1 - (1 - p_1)(...)(1 - p_n)
+                        meta_prob = (1 - snomed_values[:, label_grouping[str(i)]]).prod(1)
+                        # threshold at 1e-5
+                        meta_probs.append(prob_threshold(meta_prob))  # we don't want really small probability
 
                 meta_probs = torch.stack(meta_probs, dim=1)
 
                 assert meta_probs.size(1) == meta_label_size
 
-                # clamp everything to be between 0 and 1 for prob
+                # just here to safeguard any potential problem!
                 if args.softmax_hier_sum_prob:
                     meta_probs = torch.clamp(meta_probs, min=0., max=1.)
 
