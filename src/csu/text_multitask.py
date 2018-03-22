@@ -149,7 +149,8 @@ class Model(nn.Module):
             # prepare keys
             logger.info("adding attention matrix")
             self.task_queries = nn.Parameter(torch.randn(hidden_size, label_size))
-            self.out_proj = nn.Parameter(torch.randn(nclasses, hidden_size))
+            # self.out_proj = nn.Parameter(torch.randn(nclasses, hidden_size))
+            self.out_proj = nn.Parameter(torch.randn(hidden_size, 1))
             self.normalize = torch.nn.Softmax(dim=0)
 
     # this is the main function used
@@ -246,7 +247,10 @@ class Model(nn.Module):
             # (batch_size, label_size, hid_dim) * (1, label_size, hid_dim) -> label embedding
             # sum over hid_dim
             # squeeze possible (batch_size, label_size, 1)
-            output = torch.squeeze(torch.sum(task_specific_mix * self.out_proj.view(1, label_size, -1), 2))
+            # output = torch.squeeze(torch.sum(task_specific_mix * self.out_proj.view(1, label_size, -1), 2))
+
+            # (batch_size, label_size, hid_dim) * (hid_dim, 1)
+            output = torch.squeeze(torch.matmul(task_specific_mix, self.out_proj))
 
             return output
 
