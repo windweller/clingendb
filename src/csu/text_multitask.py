@@ -148,7 +148,7 @@ class Model(nn.Module):
 
         if args.multi_attn:
             # prepare keys
-            logging.info("adding attention matrix")
+            logger.info("adding attention matrix")
             self.task_queries = nn.Parameter(torch.randn(label_size, hidden_size))
             self.out_proj = nn.Parameter(torch.randn(nclasses, hidden_size))
             self.normalize = torch.nn.Softmax(dim=0)
@@ -572,11 +572,10 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     for i, f1_value in enumerate(f1_by_label.tolist()):
         multiclass_f1_msg += labels[i] + ": " + str(f1_value) + " "
 
-    logging.info(multiclass_f1_msg)
+    logger.info(multiclass_f1_msg)
 
     # both are only true if it's for test, this saves sysout
-    if save_pred or save_viz:
-        logging.info("\n" + metrics.classification_report(ys, preds))
+    logger.info("\n" + metrics.classification_report(ys, preds))
 
     if save_pred:
         # So the format for each entry is: y = [], pred = [], for all labels
@@ -734,11 +733,11 @@ def train_module(model, optimizer,
                 exp_cost = 0.99 * exp_cost + 0.01 * loss.data[0]
 
             if iter % 100 == 0:
-                logging.info("iter {} lr={} train_loss={} exp_cost={} \n".format(iter, optimizer.param_groups[0]['lr'],
+                logger.info("iter {} lr={} train_loss={} exp_cost={} \n".format(iter, optimizer.param_groups[0]['lr'],
                                                                                  loss.data[0], exp_cost))
 
         valid_accu = eval_model(model, valid_iter)
-        sys.stdout.write("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
+        logger.info("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
             epoch,
             optimizer.param_groups[0]['lr'],
             loss.data[0],
@@ -846,7 +845,7 @@ if __name__ == '__main__':
                   hidden_size=args.d, depth=args.depth)
 
     # print model information
-    logging.info(model)
+    logger.info(model)
 
     if torch.cuda.is_available():
         model.cuda(args.gpu)
