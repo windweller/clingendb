@@ -148,7 +148,7 @@ class Model(nn.Module):
         if args.multi_attn:
             # prepare keys
             logger.info("adding attention matrix")
-            self.task_queries = nn.Parameter(torch.randn(label_size, hidden_size))
+            self.task_queries = nn.Parameter(torch.randn(hidden_size, label_size))
             self.out_proj = nn.Parameter(torch.randn(nclasses, hidden_size))
             self.normalize = torch.nn.Softmax(dim=0)
 
