@@ -223,13 +223,23 @@ class Model(nn.Module):
             # (seq_len, batch_size, label_size)
             keys = self.normalize(keys)  # softmax normalization with attention
 
-            # apply task-specific attention
+            # This way is more space-saving, albeit slower
             # output_vec: (seq_len, batch_size, hid_dim) x keys: (seq_len, batch_size, label_size)
-            # (seq_len, batch_size, 1, hid_dim) x (seq_len, batch_size, label_size, 1)
+            task_specific_list = []
+            for t_n in xrange(label_size):
+                # (seq_len, batch_size, hid_dim) x (seq_len, batch_size, 1)
+                # sum over 0
+                # (batch_size, hid_dim)
+                task_specific_list.append(torch.squeeze(torch.sum(output_vec * keys[:, :, t_n], 0)))
 
-            task_specific_mix = output_vec.unsqueeze(2) * keys.unsqueeze(3)
+            # now it's (batch_size, label_size, hid_dim)
+            task_specific_mix = torch.stack(task_specific_list, dim=1)
+
+            # (seq_len, batch_size, 1, hid_dim) x (seq_len, batch_size, label_size, 1), out of memory
+            # task_specific_mix = output_vec.unsqueeze(2) * keys.unsqueeze(3)
+
             # (batch_size, label-size, hid_dim) or (batch_size, task-number, hid_dim)
-            task_specific_mix = torch.sum(task_specific_mix, 0)  # sum over (seq_len)
+            # task_specific_mix = torch.sum(task_specific_mix, 0)  # sum over (seq_len)
 
             # (batch_size, label_size, hid_dim) * (1, label_size, hid_dim) -> label embedding
             # sum over hid_dim
