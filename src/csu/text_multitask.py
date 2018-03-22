@@ -213,7 +213,7 @@ class Model(nn.Module):
             # (seq_len, batch_size, label_size)
             keys = torch.matmul(output_vec, self.task_queries)
 
-            seq_len, batch_size = lengths.size()
+            seq_len, batch_size, _ = output_vec.size()
 
             # (seq_len, batch_size)
             batch_mask = self.create_mask(lengths)
