@@ -230,7 +230,7 @@ class Model(nn.Module):
                 # (seq_len, batch_size, hid_dim) x (seq_len, batch_size, 1)
                 # sum over 0
                 # (batch_size, hid_dim)
-                task_specific_list.append(torch.squeeze(torch.sum(output_vec * keys[:, :, t_n], 0)))
+                task_specific_list.append(torch.squeeze(torch.sum(output_vec * keys[:, :, t_n].unsqueeze(2), 0)))
 
             # now it's (batch_size, label_size, hid_dim)
             task_specific_mix = torch.stack(task_specific_list, dim=1)
