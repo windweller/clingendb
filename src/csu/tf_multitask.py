@@ -192,7 +192,7 @@ class Encoder(object):
                 max_forward = tf.reduce_max(fw_out, axis=0)
                 max_backward = tf.reduce_max(bw_out, axis=0)
                 # (1, batch_size, hidden_size * 2)
-                encoder_outputs = tf.squeeze(tf.concat([max_forward, max_backward], 2))
+                encoder_outputs = tf.concat([max_forward, max_backward], 1)
             else:
                 encoder_outputs = tf.concat([output_state_fw[-1][1], output_state_bw[-1][1]], 0)
 
