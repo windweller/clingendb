@@ -309,11 +309,11 @@ class Classifier(object):
             # keys = tf.batch_matmul(seq_w_matrix, self.task_queries)
             keys = tf.map_fn(lambda x: tf.matmul(x, self.task_queries), seq_w_matrix)
 
-            mask = seq_w_matrix == 0  # padded parts are outputted as 0.
-            masked_keys = self.exp_mask(seq_w_matrix, mask)
+            mask = keys == 0  # padded parts are outputted as 0.
+            masked_keys = self.exp_mask(keys, mask)  # should be keys masked, not seq_w_matrix
 
             # softmax over seq_len
-            keys_normalized = tf.nn.softmax(keys, dim=0)
+            keys_normalized = tf.nn.softmax(masked_keys, dim=0)
 
             task_specific_list = []
             for t_n in xrange(self.nclasses):
@@ -322,7 +322,7 @@ class Classifier(object):
                 # (batch_size, hid_dim)
 
                 # sum over T
-                task_specific_list.append(tf.reduce_sum(seq_w_matrix * tf.expand_dims(keys[:, :, t_n], 2), axis=0))
+                task_specific_list.append(tf.reduce_sum(seq_w_matrix * tf.expand_dims(keys_normalized[:, :, t_n], 2), axis=0))
 
             # now it's (batch_size, label_size, hid_dim)
             task_specific_mix = tf.stack(task_specific_list, axis=1)
