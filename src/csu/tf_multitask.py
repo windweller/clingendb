@@ -210,7 +210,7 @@ class Classifier(object):
         self.seq_len = tf.placeholder(tf.int32, [None])
 
         # [batch, dim]
-        self.labels = tf.placeholder(tf.int32, [None, None])
+        self.labels = tf.placeholder(tf.float32, [None, None])
 
         self.keep_prob_config = 1.0 - args.dropout
         self.state_keep_prob_config = 1.0 - args.state_dropout
