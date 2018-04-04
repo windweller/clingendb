@@ -299,8 +299,8 @@ class Classifier(object):
             self.logits = rnn_cell_impl._linear([seq_c_vec], output_size=self.nclasses, bias=True)
         else:
             # seq_w_matrix: (T, batch_size, hidden_size)
-            self.task_queries = tf.get_variable("taskQueries", shape=(self.hidden_size, self.nclasses), dtype=tf.float32)
-            self.out_proj = tf.get_variable("outProj", shape=(1, self.nclasses, self.hidden_size), dtype=tf.float32)
+            self.task_queries = tf.get_variable("taskQueries", shape=(self.hidden_size * 2, self.nclasses), dtype=tf.float32)
+            self.out_proj = tf.get_variable("outProj", shape=(1, self.nclasses, self.hidden_size * 2), dtype=tf.float32)
 
             # define the process here
             # (seq_len, batch_size, hid_dim) x task_queries: (hid_dim, label_size)
