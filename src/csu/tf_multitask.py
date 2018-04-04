@@ -22,6 +22,8 @@ from tensorflow.python.ops import rnn_cell_impl
 from tensorflow.python.ops.rnn_cell import DropoutWrapper
 from tensorflow.python.ops import variable_scope as vs
 
+from tensorflow.contrib.rnn.python.ops.lstm_ops import LSTMBlockFusedCell
+
 reload(sys)
 sys.setdefaultencoding('utf-8')
 
@@ -53,6 +55,8 @@ argparser.add_argument("--l2_str", type=float, default=0, help="a scalar that re
 argparser.add_argument("--prototype", action="store_true", help="use hierarchical loss")
 argparser.add_argument("--softmax_hier", action="store_true", help="use hierarchical loss")
 argparser.add_argument("--max_margin", action="store_true", help="use hierarchical loss")
+
+argparser.add_argument("--fast", action="store_true", help="use fast operations, but give up on state dropout")
 
 argparser.add_argument("--proto_str", type=float, default=1e-3, help="a scalar that reduces strength")
 argparser.add_argument("--proto_out_str", type=float, default=1e-3, help="a scalar that reduces strength")
@@ -134,25 +138,47 @@ def condense_preds(indices, batch_size):
 
 
 class Encoder(object):
-    def __init__(self, size, num_layers):
+    def __init__(self, input_size, size, num_layers):
         self.size = size
-        self.keep_prob = tf.placeholder(tf.float32)
-        self.state_keep_prob = tf.placeholder(tf.float32)
+        self.num_layers = num_layers
+        self.input_size = input_size
 
-        cell = rnn_cell.BasicLSTMCell(self.size)
-        state_is_tuple = True
+        if not args.fast:
+            self.keep_prob = tf.placeholder(tf.float32)
+            self.state_keep_prob = tf.placeholder(tf.float32)
 
-        cell = DropoutWrapper(cell, input_keep_prob=self.keep_prob, state_keep_prob=self.state_keep_prob,
-                              seed=args.seed)
-        self.encoder_cell = tf.nn.rnn_cell.MultiRNNCell([cell] * num_layers, state_is_tuple=state_is_tuple)
+            cell = rnn_cell.BasicLSTMCell(self.size)
+            state_is_tuple = True
 
-        cell_back = rnn_cell.BasicLSTMCell(self.size)
-        state_is_tuple = True
+            cell = DropoutWrapper(cell, input_keep_prob=self.keep_prob, state_keep_prob=self.state_keep_prob,
+                                  seed=args.seed)
+            self.encoder_cell = tf.nn.rnn_cell.MultiRNNCell([cell] * num_layers, state_is_tuple=state_is_tuple)
 
-        cell_back = DropoutWrapper(cell_back, input_keep_prob=self.keep_prob, state_keep_prob=self.state_keep_prob,
-                                   seed=args.seed)
-        self.encoder_cell_bw = tf.nn.rnn_cell.MultiRNNCell([cell_back] * num_layers,
-                                                           state_is_tuple=state_is_tuple)
+            cell_back = rnn_cell.BasicLSTMCell(self.size)
+            state_is_tuple = True
+
+            cell_back = DropoutWrapper(cell_back, input_keep_prob=self.keep_prob, state_keep_prob=self.state_keep_prob,
+                                       seed=args.seed)
+            self.encoder_cell_bw = tf.nn.rnn_cell.MultiRNNCell([cell_back] * num_layers,
+                                                               state_is_tuple=state_is_tuple)
+        else:
+            self.keep_prob = tf.placeholder(tf.float32)
+            self.state_keep_prob = tf.placeholder(tf.float32)
+
+            cell = LSTMBlockFusedCell(self.size)
+            state_is_tuple = True
+
+            cell = DropoutWrapper(cell, input_keep_prob=self.keep_prob, state_keep_prob=self.state_keep_prob,
+                                  seed=args.seed)
+            self.encoder_cell = tf.nn.rnn_cell.MultiRNNCell([cell] * num_layers, state_is_tuple=state_is_tuple)
+
+            cell_back = LSTMBlockFusedCell(self.size)
+            state_is_tuple = True
+
+            cell_back = DropoutWrapper(cell_back, input_keep_prob=self.keep_prob, state_keep_prob=self.state_keep_prob,
+                                       seed=args.seed)
+            self.encoder_cell_bw = tf.nn.rnn_cell.MultiRNNCell([cell_back] * num_layers,
+                                                               state_is_tuple=state_is_tuple)
 
     def encode(self, inputs, srclen, reuse=False, scope_name="", temp_max=False):
         """
@@ -548,7 +574,10 @@ if __name__ == '__main__':
     if args.rand_unk:
         init_emb(vocab, init="randn")
 
-    with tf.Graph().as_default(), tf.Session() as session:
+    config_gpu = tf.ConfigProto()
+    config_gpu.gpu_options.allow_growth = True
+
+    with tf.Graph().as_default(), tf.Session(config=config_gpu) as session:
         tf.set_random_seed(args.seed)
 
         # initializer = tf.random_uniform_initializer(-FLAGS.init_scale, FLAGS.init_scale, seed=FLAGS.seed)
