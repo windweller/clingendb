@@ -47,11 +47,10 @@ argparser.add_argument("--dataset", type=str, default='multi_top_snomed_adjusted
 argparser.add_argument("--batch_size", "--batch", type=int, default=32)
 argparser.add_argument("--emb_dim", type=int, default=100)
 argparser.add_argument("--max_epoch", type=int, default=5)
+argparser.add_argument("--attn_heads", type=int, default=3)
 argparser.add_argument("--d", type=int, default=512)
 argparser.add_argument("--dropout", type=float, default=0.3,
                        help="dropout of word embeddings and softmax output")
-argparser.add_argument("--rnn_dropout", type=float, default=0.2,
-                       help="dropout of RNN layers")
 argparser.add_argument("--depth", type=int, default=1)
 argparser.add_argument("--lr", type=float, default=1.0)
 argparser.add_argument("--clip_grad", type=float, default=5)
@@ -140,7 +139,7 @@ class Model(nn.Module):
             dropout=0.2,
             bidirectional=False)  # ha...not even bidirectional
         d_out = hidden_size
-        self.out = nn.Linear(d_out, nclasses)  # include bias, to prevent bias assignment
+
         self.embed = nn.Embedding(len(vocab), emb_dim)
         self.embed.weight.data.copy_(vocab.vectors)
         self.embed.weight.requires_grad = True if args.emb_update else False
@@ -148,10 +147,11 @@ class Model(nn.Module):
         if args.multi_attn:
             # prepare keys
             logger.info("adding attention matrix")
-            self.task_queries = nn.Parameter(torch.randn(hidden_size, label_size))
-            # self.out_proj = nn.Parameter(torch.randn(nclasses, hidden_size))
-            self.out_proj = nn.Parameter(torch.randn(hidden_size, 1))
+            self.task_queries = nn.Parameter(torch.randn(hidden_size, args.attn_heads))
+            self.out = nn.Linear(d_out * args.attn_heads, nclasses)  # include bias, to prevent bias assignment
             self.normalize = torch.nn.Softmax(dim=0)
+        else:
+            self.out = nn.Linear(d_out, nclasses)  # include bias, to prevent bias assignment
 
     # this is the main function used
     def forward(self, input, lengths=None):
@@ -210,8 +210,9 @@ class Model(nn.Module):
             output = torch.max(output_vec, 0)[0].squeeze(0)
             return self.out(output)
         else:
-            # output_vec: (seq_len, batch_size, hid_dim) x task_queries: (hid_dim, label_size)
-            # (seq_len, batch_size, label_size)
+            # output_vec: (seq_len, batch_size, hid_dim) x task_queries: (hid_dim, attn_heads)
+            # (seq_len, batch_size, attn_heads)
+
             keys = torch.matmul(output_vec, self.task_queries)
 
             seq_len, batch_size, _ = output_vec.size()
@@ -227,16 +228,19 @@ class Model(nn.Module):
             keys = self.normalize(keys)  # softmax normalization with attention
 
             # This way is more space-saving, albeit slower
-            # output_vec: (seq_len, batch_size, hid_dim) x keys: (seq_len, batch_size, label_size)
+            # output_vec: (seq_len, batch_size, hid_dim) x keys: (seq_len, batch_size, attn_heads)
             task_specific_list = []
-            for t_n in xrange(label_size):
+            for t_n in xrange(args.attn_heads):
                 # (seq_len, batch_size, hid_dim) x (seq_len, batch_size, 1)
                 # sum over 0
                 # (batch_size, hid_dim)
                 task_specific_list.append(torch.squeeze(torch.sum(output_vec * keys[:, :, t_n].contiguous().view(seq_len, batch_size, 1), 0)))
 
-            # now it's (batch_size, label_size, hid_dim)
-            task_specific_mix = torch.stack(task_specific_list, dim=1)
+            # now it's (batch_size, attn_heads, hid_dim)
+            # task_specific_mix = torch.stack(task_specific_list, dim=1)
+
+            # (batch_size, hid_dim * attn_heads)
+            task_specific_mix = torch.cat(task_specific_list, dim=1)
 
             # (seq_len, batch_size, 1, hid_dim) x (seq_len, batch_size, label_size, 1), out of memory
             # task_specific_mix = output_vec.unsqueeze(2) * keys.unsqueeze(3)
@@ -249,16 +253,14 @@ class Model(nn.Module):
             # squeeze possible (batch_size, label_size, 1)
             # output = torch.squeeze(torch.sum(task_specific_mix * self.out_proj.view(1, label_size, -1), 2))
 
-            # (batch_size, label_size, hid_dim) * (hid_dim, 1)
-            output = torch.squeeze(torch.matmul(task_specific_mix, self.out_proj))
+            # (batch_size, hid_dim * 3) * (hid_dim * 3, label_size)
+            # output = torch.squeeze(torch.matmul(task_specific_mix, self.out_proj))
+            output = self.out(task_specific_mix)
 
             return output
 
     def get_softmax_weight(self):
-        if not args.multi_attn:
-            return self.out.weight
-        else:
-            return torch.transpose(self.out_proj, 0, 1)
+        return self.out.weight
 
     def get_weight_map(self, sent_vec, normalize='local'):
         # normalize: 'local' | 'global'
@@ -491,9 +493,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     all_meta_preds = []
     all_meta_y_labels = []
 
-    # all_credit_assign = []
-    # all_la_global = []
-    # all_la_local = []
+    # TODO: save prob of each example
 
     iter = 0
     for data in valid_iter:
