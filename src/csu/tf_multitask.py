@@ -302,7 +302,7 @@ class Classifier(object):
             seq_lengths = seq_lengths.numpy()
             y = y.data.numpy()
 
-            batch_size = y.shape()[0]
+            batch_size = y.shape[0]
 
             cost, probs = self.test(session, seq, seq_lengths, y)
             valid_cost += cost
@@ -401,7 +401,7 @@ class Classifier(object):
                 seq_lengths = seq_lengths.numpy()
                 y = y.data.numpy()
 
-                batch_size = y.shape()[0]
+                batch_size = y.shape[0]
 
                 probs, grad_norm, cost, param_norm = self.optimize(session, seq, seq_lengths, y)
 
