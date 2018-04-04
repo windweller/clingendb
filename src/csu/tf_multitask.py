@@ -176,7 +176,7 @@ class Encoder(object):
                     self.encoder_cell_bw, inp, srclen,
                     scope=scope, dtype=tf.float32, time_major=True)
                 # (batch_size, T, hidden_size * 2)
-                out = tf.concat(1, [fw_out, bw_out])
+                out = tf.concat([fw_out, bw_out], 1)
 
             # before we are using state_is_tuple=True, meaning we only chose top layer
             # now we choose both so layer 1 and layer 2 will have a difference
@@ -187,9 +187,9 @@ class Encoder(object):
             if temp_max:
                 max_forward = tf.reduce_max(fw_out, axis=1)
                 max_backward = tf.reduce_max(bw_out, axis=1)
-                encoder_outputs = tf.concat(1, [max_forward, max_backward])
+                encoder_outputs = tf.concat([max_forward, max_backward], 1)
             else:
-                encoder_outputs = tf.concat(1, [output_state_fw[-1][1], output_state_bw[-1][1]])
+                encoder_outputs = tf.concat([output_state_fw[-1][1], output_state_bw[-1][1]], 1)
 
         return out, encoder_outputs
 
