@@ -299,7 +299,7 @@ class Classifier(object):
             x = data.Text
             (seq, seq_lengths), y = data.Text, data.Description
             seq = seq.data.numpy()
-            seq_lengths = seq_lengths.data.numpy()
+            seq_lengths = seq_lengths.numpy()
             y = y.data.numpy()
 
             batch_size = y.shape()[0]
@@ -398,7 +398,7 @@ class Classifier(object):
                 # PyTorch variables
                 (seq, seq_lengths), y = data.Text, data.Description
                 seq = seq.data.numpy()
-                seq_lengths = seq_lengths.data.numpy()
+                seq_lengths = seq_lengths.numpy()
                 y = y.data.numpy()
 
                 batch_size = y.shape()[0]
