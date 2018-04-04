@@ -138,10 +138,9 @@ def condense_preds(indices, batch_size):
 
 
 class Encoder(object):
-    def __init__(self, input_size, size, num_layers):
+    def __init__(self, size, num_layers):
         self.size = size
         self.num_layers = num_layers
-        self.input_size = input_size
 
         if not args.fast:
             self.keep_prob = tf.placeholder(tf.float32)
