@@ -305,7 +305,9 @@ class Classifier(object):
             # define the process here
             # (seq_len, batch_size, hid_dim) x task_queries: (hid_dim, label_size)
             # (seq_len, batch_size, label_size)
-            keys = tf.matmul(seq_w_matrix, self.task_queries)
+
+            # keys = tf.batch_matmul(seq_w_matrix, self.task_queries)
+            keys = tf.map_fn(lambda x: tf.matmul(x, self.task_queries), seq_w_matrix)
 
             mask = seq_w_matrix == 0  # padded parts are outputted as 0.
             masked_keys = self.exp_mask(seq_w_matrix, mask)
