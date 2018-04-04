@@ -251,9 +251,8 @@ class Classifier(object):
 
         if not self.multi_attn:
             # normal classification
-            # seq_c_vec: (T, batch_size, hidden_size)
-            seq_c_vec = tf.transpose(seq_c_vec, perm=[1, 0, 2])
-            self.logits = rnn_cell_impl._linear([], output_size=self.nclasses, bias=True)
+            # seq_c_vec: (batch_size, hidden_size)
+            self.logits = rnn_cell_impl._linear([seq_c_vec], output_size=self.nclasses, bias=True)
             self.probs = tf.nn.sigmoid(self.logits)
         else:
             pass
