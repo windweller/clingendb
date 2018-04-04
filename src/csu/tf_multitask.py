@@ -306,6 +306,10 @@ class Classifier(object):
             # (seq_len, batch_size, hid_dim) x task_queries: (hid_dim, label_size)
             # (seq_len, batch_size, label_size)
 
+            # OOM with 42 * [1067,32,1024] = 1468465152
+            # normal attention occupies: 34,963,456 (34M parameter space)
+            # 1.4 Billion...parameters...obviously too big
+
             # keys = tf.batch_matmul(seq_w_matrix, self.task_queries)
             keys = tf.map_fn(lambda x: tf.matmul(x, self.task_queries), seq_w_matrix)
 
@@ -330,8 +334,6 @@ class Classifier(object):
             self.logits = tf.reduce_sum(task_specific_mix * self.out_proj, axis=2)
 
         self.probs = tf.nn.sigmoid(self.logits)
-
-
 
 
     def optimize(self, session, seq_tokens, seq_len, labels):
@@ -379,7 +381,7 @@ class Classifier(object):
         for data in valid_iter:
 
             # PyTorch variables
-            x = data.Text
+            x, _ = data.Text
             (seq, seq_lengths), y = data.Text, data.Description
             seq = seq.data.numpy()
             seq_lengths = seq_lengths.numpy()
