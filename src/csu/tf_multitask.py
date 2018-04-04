@@ -141,9 +141,9 @@ class Encoder(object):
     def __init__(self, size, num_layers):
         self.size = size
         self.num_layers = num_layers
+        self.keep_prob = tf.placeholder(tf.float32)
 
         if not args.fast:
-            self.keep_prob = tf.placeholder(tf.float32)
             self.state_keep_prob = tf.placeholder(tf.float32)
 
             cell = rnn_cell.BasicLSTMCell(self.size)
@@ -161,23 +161,23 @@ class Encoder(object):
             self.encoder_cell_bw = tf.nn.rnn_cell.MultiRNNCell([cell_back] * num_layers,
                                                                state_is_tuple=state_is_tuple)
         else:
-            self.keep_prob = tf.placeholder(tf.float32)
-            self.state_keep_prob = tf.placeholder(tf.float32)
-
+            logging.info("Using LSTMBlockFusedCell")
             cell = LSTMBlockFusedCell(self.size)
             state_is_tuple = True
 
-            cell = DropoutWrapper(cell, input_keep_prob=self.keep_prob, state_keep_prob=self.state_keep_prob,
-                                  seed=args.seed)
-            self.encoder_cell = tf.nn.rnn_cell.MultiRNNCell([cell] * num_layers, state_is_tuple=state_is_tuple)
+            # cell = DropoutWrapper(cell, input_keep_prob=self.keep_prob, state_keep_prob=self.state_keep_prob,
+            #                       seed=args.seed)
+            # self.encoder_cell = tf.nn.rnn_cell.MultiRNNCell([cell] * num_layers, state_is_tuple=state_is_tuple)
+            self.encoder_cell = cell
 
             cell_back = LSTMBlockFusedCell(self.size)
-            state_is_tuple = True
-
-            cell_back = DropoutWrapper(cell_back, input_keep_prob=self.keep_prob, state_keep_prob=self.state_keep_prob,
-                                       seed=args.seed)
-            self.encoder_cell_bw = tf.nn.rnn_cell.MultiRNNCell([cell_back] * num_layers,
-                                                               state_is_tuple=state_is_tuple)
+            # state_is_tuple = True
+            #
+            # cell_back = DropoutWrapper(cell_back, input_keep_prob=self.keep_prob, state_keep_prob=self.state_keep_prob,
+            #                            seed=args.seed)
+            # self.encoder_cell_bw = tf.nn.rnn_cell.MultiRNNCell([cell_back] * num_layers,
+            #                                                    state_is_tuple=state_is_tuple)
+            self.encoder_cell_bw = cell_back
 
     def encode(self, inputs, srclen, reuse=False, scope_name="", temp_max=False):
         """
@@ -196,6 +196,10 @@ class Encoder(object):
         """
         with vs.variable_scope(scope_name + "Encoder", reuse=reuse):
             inp = inputs
+
+            if args.fast:
+                # apply at least input dropout since DropoutWrapper is not usable
+                inp = tf.nn.dropout(inp, self.keep_prob)
 
             with vs.variable_scope("EncoderCell") as scope:
                 (fw_out, bw_out), (output_state_fw, output_state_bw) = tf.nn.bidirectional_dynamic_rnn(
