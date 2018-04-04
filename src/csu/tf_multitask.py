@@ -274,6 +274,21 @@ class Classifier(object):
 
             self.saver = tf.train.Saver(tf.global_variables(), max_to_keep=args.max_epoch)
 
+    def exp_mask(self, val, mask, name=None):
+        """Give very negative number to unmasked elements in val.
+        For example, [-3, -2, 10], [True, True, False] -> [-3, -2, -1e9].
+        Typically, this effectively masks in exponential space (e.g. softmax)
+        Args:
+            val: values to be masked
+            mask: masking boolean tensor, same shape as tensor
+            name: name for output tensor
+        Returns:
+            Same shape as val, where some elements are very small (exponentially zero)
+        """
+        if name is None:
+            name = "exp_mask"
+        return tf.add(val, (1 - tf.cast(mask, 'float')) * VERY_NEGATIVE_NUMBER, name=name)
+
     def build_graph(self):
         # time-major!
         seq_w_matrix, seq_c_vec = self.encoder.encode(self.seq_inputs, self.seq_len, temp_max=True)
@@ -282,9 +297,40 @@ class Classifier(object):
             # normal classification
             # seq_c_vec: (batch_size, hidden_size)
             self.logits = rnn_cell_impl._linear([seq_c_vec], output_size=self.nclasses, bias=True)
-            self.probs = tf.nn.sigmoid(self.logits)
         else:
-            pass
+            # seq_w_matrix: (T, batch_size, hidden_size)
+            self.task_queries = tf.get_variable("taskQueries", shape=(self.hidden_size, self.nclasses), dtype=tf.float32)
+            self.out_proj = tf.get_variable("outProj", shape=(1, self.nclasses, self.hidden_size), dtype=tf.float32)
+
+            # define the process here
+            # (seq_len, batch_size, hid_dim) x task_queries: (hid_dim, label_size)
+            # (seq_len, batch_size, label_size)
+            keys = tf.matmul(seq_w_matrix, self.task_queries)
+
+            mask = seq_w_matrix == 0  # padded parts are outputted as 0.
+            masked_keys = self.exp_mask(seq_w_matrix, mask)
+
+            # softmax over seq_len
+            keys_normalized = tf.nn.softmax(keys, dim=0)
+
+            task_specific_list = []
+            for t_n in xrange(self.nclasses):
+                # (seq_len, batch_size, hid_dim) x (seq_len, batch_size, 1)
+                # sum over 0
+                # (batch_size, hid_dim)
+
+                # sum over T
+                task_specific_list.append(tf.reduce_sum(seq_w_matrix * tf.expand_dims(keys[:, :, t_n], 2), axis=0))
+
+            # now it's (batch_size, label_size, hid_dim)
+            task_specific_mix = tf.stack(task_specific_list, axis=1)
+            # (batch_size, label_size)
+            self.logits = tf.reduce_sum(task_specific_mix * self.out_proj, axis=2)
+
+        self.probs = tf.nn.sigmoid(self.logits)
+
+
+
 
     def optimize(self, session, seq_tokens, seq_len, labels):
         input_feed = {}
