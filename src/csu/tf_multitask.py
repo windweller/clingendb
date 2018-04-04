@@ -170,13 +170,13 @@ class Encoder(object):
             inp = inputs
 
             with vs.variable_scope("EncoderCell") as scope:
-                # srclen = tf.reduce_sum(mask, reduction_indices=1)
                 (fw_out, bw_out), (output_state_fw, output_state_bw) = tf.nn.bidirectional_dynamic_rnn(
                     self.encoder_cell,
                     self.encoder_cell_bw, inp, srclen,
                     scope=scope, dtype=tf.float32, time_major=True)
                 # (batch_size, T, hidden_size * 2)
-                out = tf.concat([fw_out, bw_out], 1)
+                # (T, batch_size, hidden_size * 2)
+                out = tf.concat([fw_out, bw_out], 0)
 
             # before we are using state_is_tuple=True, meaning we only chose top layer
             # now we choose both so layer 1 and layer 2 will have a difference
@@ -185,11 +185,11 @@ class Encoder(object):
             # last layer [-1], hidden state [1]
             # this works with multilayer
             if temp_max:
-                max_forward = tf.reduce_max(fw_out, axis=1)
-                max_backward = tf.reduce_max(bw_out, axis=1)
-                encoder_outputs = tf.concat([max_forward, max_backward], 1)
+                max_forward = tf.reduce_max(fw_out, axis=0)
+                max_backward = tf.reduce_max(bw_out, axis=0)
+                encoder_outputs = tf.concat([max_forward, max_backward], 0)
             else:
-                encoder_outputs = tf.concat([output_state_fw[-1][1], output_state_bw[-1][1]], 1)
+                encoder_outputs = tf.concat([output_state_fw[-1][1], output_state_bw[-1][1]], 0)
 
         return out, encoder_outputs
 
