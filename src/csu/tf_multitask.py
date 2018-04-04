@@ -111,11 +111,14 @@ def preds_to_sparse_matrix(indices, batch_size, label_size):
         labels[b, l] = 1.
     return labels
 
+
 def sparse_one_hot_mat_to_indices(preds):
     return preds.nonzero()
 
+
 def output_to_preds(probs):
     return (probs > 0.5)
+
 
 def condense_preds(indices, batch_size):
     # can condense both preds and y
@@ -175,8 +178,9 @@ class Encoder(object):
                     self.encoder_cell_bw, inp, srclen,
                     scope=scope, dtype=tf.float32, time_major=True)
                 # (batch_size, T, hidden_size * 2)
+
                 # (T, batch_size, hidden_size * 2)
-                out = tf.concat([fw_out, bw_out], 0)
+                out = tf.concat([fw_out, bw_out], 2)
 
             # before we are using state_is_tuple=True, meaning we only chose top layer
             # now we choose both so layer 1 and layer 2 will have a difference
@@ -187,7 +191,8 @@ class Encoder(object):
             if temp_max:
                 max_forward = tf.reduce_max(fw_out, axis=0)
                 max_backward = tf.reduce_max(bw_out, axis=0)
-                encoder_outputs = tf.concat([max_forward, max_backward], 0)
+                # (1, batch_size, hidden_size * 2)
+                encoder_outputs = tf.squeeze(tf.concat([max_forward, max_backward], 2))
             else:
                 encoder_outputs = tf.concat([output_state_fw[-1][1], output_state_bw[-1][1]], 0)
 
@@ -246,7 +251,9 @@ class Classifier(object):
 
         if not self.multi_attn:
             # normal classification
-            self.logits = rnn_cell_impl._linear([seq_c_vec], output_size=self.nclasses, bias=True)
+            # seq_c_vec: (T, batch_size, hidden_size)
+            seq_c_vec = tf.transpose(seq_c_vec, perm=[1, 0, 2])
+            self.logits = rnn_cell_impl._linear([], output_size=self.nclasses, bias=True)
             self.probs = tf.nn.sigmoid(self.logits)
         else:
             pass
