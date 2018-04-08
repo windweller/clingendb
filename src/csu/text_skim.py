@@ -255,7 +255,12 @@ class Model(nn.Module):
             return output
 
     def get_softmax_weight(self):
-        return self.out.weight
+        if not args.multi_attn:
+            return self.out.weight
+        else:
+            # I guess the key prototype vectors
+            # and final vectors are the same...
+            return self.task_queries
 
     def get_weight_map(self, sent_vec, normalize='local'):
         # normalize: 'local' | 'global'
