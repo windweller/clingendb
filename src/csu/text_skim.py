@@ -221,15 +221,18 @@ class Model(nn.Module):
 
             # (seq_len / skim_interval, batch_size, hid_dim)
             output_vec = skimmed_output_vec
+            skimmed_len = len(range(0, seq_len, args.skim_interval))
 
             keys = torch.matmul(output_vec, self.task_queries)
 
             # (seq_len, batch_size)
-            batch_mask = self.create_mask(lengths)
-            exp_mask = Variable((1 - batch_mask) * VERY_NEGATIVE_NUMBER, requires_grad=False)
+            # batch_mask = self.create_mask(lengths)
+            # exp_mask = Variable((1 - batch_mask) * VERY_NEGATIVE_NUMBER, requires_grad=False)
+            # keys += move_to_cuda(exp_mask).view(seq_len, batch_size, 1) # (seq_len, batch_size, 1)
 
-            # masked_keys = keys * Variable(move_to_cuda(batch_mask.unsqueeze(2)))
-            keys += move_to_cuda(exp_mask).view(seq_len, batch_size, 1) # (seq_len, batch_size, 1)
+            # TODO: this is not perhaps perfect...but should work to a good degree
+            exp_mask = Variable((1 - (output_vec == 0.).float()) * VERY_NEGATIVE_NUMBER, requires_grad=False)
+            keys += move_to_cuda(exp_mask).view(skimmed_len, batch_size, 1)
 
             # (seq_len, batch_size, label_size)
             keys = self.normalize(keys)  # softmax normalization with attention
@@ -241,7 +244,7 @@ class Model(nn.Module):
                 # (seq_len, batch_size, hid_dim) x (seq_len, batch_size, 1)
                 # sum over 0
                 # (batch_size, hid_dim)
-                task_specific_list.append(torch.squeeze(torch.sum(output_vec * keys[:, :, t_n].contiguous().view(seq_len, batch_size, 1), 0)))
+                task_specific_list.append(torch.squeeze(torch.sum(output_vec * keys[:, :, t_n].contiguous().view(skimmed_len, batch_size, 1), 0)))
 
             # now it's (batch_size, task_numbers, hid_dim)
             task_specific_mix = torch.stack(task_specific_list, dim=1)
