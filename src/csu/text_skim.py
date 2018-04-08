@@ -214,7 +214,7 @@ class Model(nn.Module):
 
             # Skim!!!
             skimmed_output_vec = []
-            for t in range(0, seq_len, step=args.skim_interval):
+            for t in range(0, seq_len, args.skim_interval):
                 skimmed = torch.max(output_vec[t:t+args.skim_interval, :, :], 0)[0].squeeze(0)
                 skimmed_output_vec.append(skimmed)
             skimmed_output_vec = torch.stack(skimmed_output_vec, dim=0)
