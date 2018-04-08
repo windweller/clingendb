@@ -41,7 +41,6 @@ argparser.add_argument("--dataset", type=str, default='multi_top_snomed_adjusted
 argparser.add_argument("--batch_size", "--batch", type=int, default=32)
 argparser.add_argument("--emb_dim", type=int, default=100)
 argparser.add_argument("--max_epoch", type=int, default=5)
-argparser.add_argument("--attn_heads", type=int, default=3)
 argparser.add_argument("--d", type=int, default=512)
 argparser.add_argument("--dropout", type=float, default=0.3,
                        help="dropout of word embeddings and softmax output")
@@ -142,8 +141,11 @@ class Model(nn.Module):
         if args.multi_attn:
             # prepare keys
             logger.info("adding attention matrix")
-            self.task_queries = nn.Parameter(torch.randn(hidden_size, args.attn_heads))
-            self.out = nn.Linear(d_out * args.attn_heads, nclasses)  # include bias, to prevent bias assignment
+            self.task_queries = nn.Parameter(torch.randn(hidden_size, nclasses))
+            # self.out = nn.Linear(self.hidden_size, self.nclasses)  # include bias, to prevent bias assignment
+
+            # we could have just use one vector...here we use multiple...
+            self.out_proj = nn.Parameter(torch.randn(1, self.nclasses, self.hidden_size))
             self.normalize = torch.nn.Softmax(dim=0)
         else:
             self.out = nn.Linear(d_out, nclasses)  # include bias, to prevent bias assignment
@@ -233,21 +235,22 @@ class Model(nn.Module):
             keys = self.normalize(keys)  # softmax normalization with attention
 
             # This way is more space-saving, albeit slower
-            # output_vec: (seq_len, batch_size, hid_dim) x keys: (seq_len, batch_size, attn_heads)
+            # output_vec: (seq_len, batch_size, hid_dim) x keys: (seq_len, batch_size, task_numbers)
             task_specific_list = []
-            for t_n in xrange(args.attn_heads):
+            for t_n in xrange(self.nclasses):
                 # (seq_len, batch_size, hid_dim) x (seq_len, batch_size, 1)
                 # sum over 0
                 # (batch_size, hid_dim)
                 task_specific_list.append(torch.squeeze(torch.sum(output_vec * keys[:, :, t_n].contiguous().view(seq_len, batch_size, 1), 0)))
 
-            # now it's (batch_size, attn_heads, hid_dim)
-            # task_specific_mix = torch.stack(task_specific_list, dim=1)
+            # now it's (batch_size, task_numbers, hid_dim)
+            task_specific_mix = torch.stack(task_specific_list, dim=1)
+            output = torch.sum(self.out_proj * task_specific_mix, 2)
 
-            # (batch_size, hid_dim * attn_heads)
-            task_specific_mix = torch.cat(task_specific_list, dim=1)
+            # (batch_size, hid_dim * task_numbers)
+            # task_specific_mix = torch.cat(task_specific_list, dim=1)
 
-            output = self.out(task_specific_mix)
+            # output = self.out(task_specific_mix)
 
             return output
 
