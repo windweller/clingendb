@@ -231,10 +231,12 @@ class Model(nn.Module):
             # keys += move_to_cuda(exp_mask).view(seq_len, batch_size, 1) # (seq_len, batch_size, 1)
 
             # TODO: this is not perhaps perfect...but should work to a good degree
-            exp_mask = (1 - (output_vec == 0.).float()) * VERY_NEGATIVE_NUMBER
-            exp_mask.requires_grad = False
+            exp_mask = (1 - (output_vec.data == 0.).float()) * VERY_NEGATIVE_NUMBER
+            exp_mask = Variable(exp_mask, requires_grad=False)  # this is on CUDA anyway
+            # exp_mask.requires_grad = False
 
-            keys += move_to_cuda(exp_mask).view(skimmed_len, batch_size, 1)
+            # keys += move_to_cuda(exp_mask).view(skimmed_len, batch_size, 1)
+            keys += exp_mask
 
             # (seq_len, batch_size, label_size)
             keys = self.normalize(keys)  # softmax normalization with attention
