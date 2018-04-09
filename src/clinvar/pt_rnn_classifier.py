@@ -136,7 +136,7 @@ class RNNClassifier(nn.Module):
         if lengths is not None:
             output = unpack(output)[0]
 
-        return self.out(hidden)
+        return self.out(torch.squeeze(hidden))
 
 
 def train_module(model, optimizer,
