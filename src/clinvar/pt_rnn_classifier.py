@@ -236,13 +236,13 @@ if __name__ == '__main__':
     LABEL = data.Field(sequential=False, unk_token=None)
 
     # train, test = datasets.IMDB.splits(TEXT, LABEL)
-    train, test = datasets.SST.splits(TEXT, LABEL)
+    train, val, test = datasets.SST.splits(TEXT, LABEL)
 
     TEXT.build_vocab(train, vectors="glove.6B.{}d".format(args.emb))
     LABEL.build_vocab(train)
 
-    train_iter, test_iter = data.Iterator.splits(
-        (train, test), sort_key=lambda x: len(x.text),  # no global sort, but within-batch-sort
+    train_iter, val_iter, test_iter = data.Iterator.splits(
+        (train, val, test), sort_key=lambda x: len(x.text),  # no global sort, but within-batch-sort
         batch_sizes=(32, 256), device=0,
         sort_within_batch=True, repeat=False)
 
@@ -267,7 +267,7 @@ if __name__ == '__main__':
         filter(need_grad, model.parameters()),
         lr=0.001)
 
-    train_module(model, optimizer, train_iter, test_iter,
+    train_module(model, optimizer, train_iter, val_iter,
                  max_epoch=args.epochs)
 
     test_accu = eval_model(model, test_iter)
