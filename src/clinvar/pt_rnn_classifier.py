@@ -251,7 +251,7 @@ if __name__ == '__main__':
         init_emb(vocab, init="randn")
 
     # IMDB is binary
-    model = RNNClassifier(vocab, nclasses=2, emb_dim=args.emb, hidden_size=args.hid)
+    model = RNNClassifier(vocab, nclasses=4, emb_dim=args.emb, hidden_size=args.hid)
 
     print(model)
 
