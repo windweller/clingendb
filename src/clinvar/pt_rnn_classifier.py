@@ -153,7 +153,7 @@ def train_module(model, optimizer,
             iter += 1
 
             model.zero_grad()
-            (x, x_lengths), y = data.Text, data.Description
+            (x, x_lengths), y = data.text, data.label
 
             output = model(x, x_lengths)
 
@@ -206,7 +206,7 @@ def eval_model(model, valid_iter, save_pred=False):
     all_y_labels = []
     all_orig_texts = []
     for data in valid_iter:
-        (x, x_lengths), y = data.Text, data.Description
+        (x, x_lengths), y = data.text, data.label
         output = model(x, x_lengths)
         loss = criterion(output, y)
         total_loss += loss.data[0] * x.size(1)
@@ -231,13 +231,12 @@ if __name__ == '__main__':
     TEXT = ReversibleField(sequential=True, include_lengths=True, lower=False)
     LABEL = data.Field(sequential=False, use_vocab=False)
 
-    train, test = datasets.IMDB.splits(TEXT, LABEL,
-                                       fields=[('Text', TEXT), ('Description', LABEL)])
+    train, test = datasets.IMDB.splits(TEXT, LABEL)
 
     TEXT.build_vocab(train, vectors="glove.6B.{}d".format(args.emb))
 
     train_iter, test_iter = data.Iterator.splits(
-        (train, test), sort_key=lambda x: len(x.Text),  # no global sort, but within-batch-sort
+        (train, test), sort_key=lambda x: len(x.text),  # no global sort, but within-batch-sort
         batch_sizes=(32, 256), device=0,
         sort_within_batch=True, repeat=False)
 
