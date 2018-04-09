@@ -231,7 +231,8 @@ if __name__ == '__main__':
     TEXT = ReversibleField(sequential=True, include_lengths=True, lower=False)
     LABEL = data.Field(sequential=False, use_vocab=False)
 
-    train, test = datasets.IMDB.splits(TEXT, LABEL)
+    train, test = datasets.IMDB.splits(TEXT, LABEL,
+                                       fields=[('Text', TEXT), ('Description', LABEL)])
 
     TEXT.build_vocab(train, vectors="glove.6B.{}d".format(args.emb))
 
