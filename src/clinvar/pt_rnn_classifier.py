@@ -243,7 +243,7 @@ if __name__ == '__main__':
 
     train_iter, val_iter, test_iter = data.Iterator.splits(
         (train, val, test), sort_key=lambda x: len(x.text),  # no global sort, but within-batch-sort
-        batch_sizes=(32, 256), device=0,
+        batch_sizes=(32, 256, 256), device=0,
         sort_within_batch=True, repeat=False)
 
     vocab = TEXT.vocab
