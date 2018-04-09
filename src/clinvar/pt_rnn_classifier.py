@@ -97,8 +97,7 @@ def init_emb(vocab, init="randn", num_special_toks=2):
 
 
 class RNNClassifier(nn.Module):
-    def __init__(self, vocab, emb_dim=50, hidden_size=50, depth=1, nclasses=5,
-                 scaled_dot_attn=False, temp_max_pool=False, attn_head=1):
+    def __init__(self, vocab, emb_dim=50, hidden_size=50, depth=1, nclasses=5):
         super(RNNClassifier, self).__init__()
         self.hidden_size = hidden_size
         self.drop = nn.Dropout(0.2)
@@ -147,7 +146,7 @@ def train_module(model, optimizer,
             model.zero_grad()
             (x, x_lengths), y = data.Text, data.Description
 
-            output = model(x)
+            output = model(x, x_lengths)
 
             loss = criterion(output, y)
             loss.backward()
@@ -199,7 +198,7 @@ def eval_model(model, valid_iter, save_pred=False):
     all_orig_texts = []
     for data in valid_iter:
         (x, x_lengths), y = data.Text, data.Description
-        output = model(x)
+        output = model(x, x_lengths)
         loss = criterion(output, y)
         total_loss += loss.data[0] * x.size(1)
 
