@@ -18,6 +18,7 @@ argparser.add_argument("--epochs", type=int, default=5)
 argparser.add_argument("--emb", type=int, default=50)
 argparser.add_argument("--hid", type=int, default=50)
 argparser.add_argument("--clip_grad", type=float, default=5)
+argparser.add_argument("--dropout", type=float, default=0.)
 argparser.add_argument("--cell", type=str, default='RNN', help='RNN|LSTM|GRU')
 
 args = argparser.parse_args()
@@ -86,7 +87,6 @@ class ReversibleField(Field):
 
 
 def init_emb(vocab, init="randn", num_special_toks=2):
-    # we can try randn or glorot
     # mode="unk"|"all", all means initialize everything
     emb_vectors = vocab.vectors
     sweep_range = len(vocab)
@@ -110,12 +110,11 @@ class RNNClassifier(nn.Module):
     def __init__(self, vocab, emb_dim=50, hidden_size=50, depth=1, nclasses=5):
         super(RNNClassifier, self).__init__()
         self.hidden_size = hidden_size
-        self.drop = nn.Dropout(0.2)
         self.encoder = encoder_type(
             emb_dim,
             hidden_size,
             depth,
-            dropout=0.2,
+            dropout=args.dropout,
             bidirectional=False)
         d_out = hidden_size
         self.out = nn.Linear(d_out, nclasses, bias=True)
