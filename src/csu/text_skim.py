@@ -215,7 +215,11 @@ class Model(nn.Module):
             # Skim!!!
             skimmed_output_vec = []
             for t in range(0, seq_len, args.skim_interval):
-                skimmed = torch.max(output_vec[t:t+args.skim_interval, :, :], 0)[0].squeeze(0)
+                # skimmed = torch.max(output_vec[t:t+args.skim_interval, :, :], 0)[0].squeeze(0)
+                if t+args.skim_interval < seq_len:
+                    skimmed = output_vec[t+args.skim_interval, :, :]
+                else:
+                    skimmed = output_vec[seq_len-1, :, :]
                 skimmed_output_vec.append(skimmed)
             skimmed_output_vec = torch.stack(skimmed_output_vec, dim=0)
 
@@ -623,13 +627,14 @@ def train_module(model, optimizer,
 
     exp_cost = None
     end_of_epoch = True  # False  # set true because we want immediate feedback...
-    iter = 0
+
     best_valid = 0.
     epoch = 1
 
     softmax_weight = model.get_softmax_weight()
 
     for n in range(max_epoch):
+        iter = 0
         for data in train_iter:
             iter += 1
 
