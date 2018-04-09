@@ -14,6 +14,7 @@ argparser = argparse.ArgumentParser(sys.argv[0], conflict_handler='resolve')
 argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
 argparser.add_argument("--emb_update", action="store_true", help="update embedding")
 argparser.add_argument("--seed", type=int, default=123)
+argparser.add_argument("--epochs", type=int, default=5)
 argparser.add_argument("--emb", type=int, default=50)
 argparser.add_argument("--hid", type=int, default=50)
 argparser.add_argument("--clip_grad", type=float, default=5)
@@ -234,6 +235,7 @@ if __name__ == '__main__':
     train, test = datasets.IMDB.splits(TEXT, LABEL)
 
     TEXT.build_vocab(train, vectors="glove.6B.{}d".format(args.emb))
+    LABEL.build_vocab(train)
 
     train_iter, test_iter = data.Iterator.splits(
         (train, test), sort_key=lambda x: len(x.text),  # no global sort, but within-batch-sort
@@ -260,7 +262,7 @@ if __name__ == '__main__':
         lr=0.001)
 
     train_module(model, optimizer, train_iter, test_iter,
-                 max_epoch=5)
+                 max_epoch=args.epochs)
 
     test_accu = eval_model(model, test_iter)
     print("final test accu: {}".format(test_accu))
