@@ -228,8 +228,8 @@ def eval_model(model, valid_iter, save_pred=False):
 
 
 if __name__ == '__main__':
-    TEXT = ReversibleField(sequential=True, include_lengths=True, lower=False)
-    LABEL = data.Field(sequential=False, use_vocab=False)
+    TEXT = ReversibleField(sequential=True, include_lengths=True, lower=True)
+    LABEL = data.Field(sequential=False)
 
     train, test = datasets.IMDB.splits(TEXT, LABEL)
 
@@ -260,7 +260,7 @@ if __name__ == '__main__':
         lr=0.001)
 
     train_module(model, optimizer, train_iter, test_iter,
-                 max_epoch=10)
+                 max_epoch=5)
 
     test_accu = eval_model(model, test_iter)
     print("final test accu: {}".format(test_accu))
