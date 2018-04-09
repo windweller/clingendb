@@ -232,11 +232,11 @@ def eval_model(model, valid_iter, save_pred=False):
 
 
 if __name__ == '__main__':
-    TEXT = ReversibleField(sequential=True, include_lengths=True, lower=True)
+    TEXT = ReversibleField(sequential=True, include_lengths=True)
     LABEL = data.Field(sequential=False, unk_token=None)
 
     # train, test = datasets.IMDB.splits(TEXT, LABEL)
-    # train, val, test = datasets.SST.splits(TEXT, LABEL)
+    train, val, test = datasets.SST.splits(TEXT, LABEL)
 
     train, val, test = data.TabularDataset.splits(
         path='./.data/sst_bin/binary/', train='sentiment-train',
