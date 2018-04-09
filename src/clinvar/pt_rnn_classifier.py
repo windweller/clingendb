@@ -133,6 +133,9 @@ class RNNClassifier(nn.Module):
 
         output, hidden = self.encoder(packed_emb)  # embed_input
 
+        if args.cell == "LSTM":
+            hidden = hidden[0]
+
         if lengths is not None:
             output = unpack(output)[0]
 
@@ -143,6 +146,7 @@ def train_module(model, optimizer,
                  train_iter, valid_iter, max_epoch):
     model.train()
     criterion = nn.CrossEntropyLoss()
+    # criterion = nn.BCEWithLogitsLoss()
 
     exp_cost = None
     iter = 0
@@ -230,7 +234,7 @@ def eval_model(model, valid_iter, save_pred=False):
 
 if __name__ == '__main__':
     TEXT = ReversibleField(sequential=True, include_lengths=True, lower=True)
-    LABEL = data.Field(sequential=False)
+    LABEL = data.Field(sequential=False, unk_token=None)
 
     train, test = datasets.IMDB.splits(TEXT, LABEL)
 
@@ -248,6 +252,8 @@ if __name__ == '__main__':
 
     # IMDB is binary
     model = RNNClassifier(vocab, nclasses=2, emb_dim=args.emb, hidden_size=args.hid)
+
+    print(model)
 
     if torch.cuda.is_available():
         model.cuda()
