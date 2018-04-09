@@ -173,7 +173,7 @@ def train_module(model, optimizer,
             else:
                 exp_cost = 0.99 * exp_cost + 0.01 * loss.data[0]
 
-            if iter % 200 == 0:
+            if iter % 100 == 0:
                 print("iter {} lr={} train_loss={} exp_cost={} \n".format(iter,
                                                                           optimizer.param_groups[
                                                                               0][
@@ -236,7 +236,13 @@ if __name__ == '__main__':
     LABEL = data.Field(sequential=False, unk_token=None)
 
     # train, test = datasets.IMDB.splits(TEXT, LABEL)
-    train, val, test = datasets.SST.splits(TEXT, LABEL)
+    # train, val, test = datasets.SST.splits(TEXT, LABEL)
+
+    train, val, test = data.TabularDataset.splits(
+        path='./.data/sst_bin/binary/', train='sentiment-train',
+        validation='sentiment-dev',
+        test='sentiment-test', format='tsv',
+        fields=[('text', TEXT), ('label', LABEL)])
 
     TEXT.build_vocab(train, vectors="glove.6B.{}d".format(args.emb))
     LABEL.build_vocab(train)
