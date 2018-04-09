@@ -223,7 +223,7 @@ def eval_model(model, valid_iter, save_pred=False):
         orig_text = TEXT.reverse(x.data)
         all_orig_texts.extend(orig_text)
 
-        all_preds.extend(preds.data.cpu().numpy().tolist())
+        all_preds.extend(preds.cpu().numpy().tolist())
         all_y_labels.extend(y.data.cpu().numpy().tolist())
 
     print("\n" + metrics.classification_report(all_y_labels, all_preds))
