@@ -17,6 +17,7 @@ argparser.add_argument("--seed", type=int, default=123)
 argparser.add_argument("--emb", type=int, default=50)
 argparser.add_argument("--hid", type=int, default=50)
 argparser.add_argument("--clip_grad", type=float, default=5)
+argparser.add_argument("--cell", type=str, default='RNN', help='RNN|LSTM|GRU')
 
 args = argparser.parse_args()
 
@@ -30,6 +31,14 @@ use_cuda = torch.cuda.is_available()
 if use_cuda:
     torch.cuda.manual_seed_all(args.seed)
 
+if args.cell == "RNN":
+    encoder_type = nn.RNN
+elif args.cell == "LSTM":
+    encoder_type = nn.LSTM
+elif args.cell == "GRU":
+    encoder_type = nn.GRU
+else:
+    raise Exception("unsupported cell type: {}".format(args.cell))
 
 class ReversibleField(Field):
     def __init__(self, **kwargs):
@@ -101,12 +110,12 @@ class RNNClassifier(nn.Module):
         super(RNNClassifier, self).__init__()
         self.hidden_size = hidden_size
         self.drop = nn.Dropout(0.2)
-        self.encoder = nn.LSTM(
+        self.encoder = encoder_type(
             emb_dim,
             hidden_size,
             depth,
             dropout=0.2,
-            bidirectional=False)  # ha...not even bidirectional
+            bidirectional=False)
         d_out = hidden_size
         self.out = nn.Linear(d_out, nclasses, bias=True)
         self.embed = nn.Embedding(len(vocab), emb_dim)
@@ -222,13 +231,13 @@ if __name__ == '__main__':
     TEXT = ReversibleField(sequential=True, include_lengths=True, lower=False)
     LABEL = data.Field(sequential=False, use_vocab=False)
 
-    train, val, test = datasets.IMDB.splits(TEXT, LABEL)
+    train, test = datasets.IMDB.splits(TEXT, LABEL)
 
     TEXT.build_vocab(train, vectors="glove.6B.{}d".format(args.emb))
 
-    train_iter, val_iter, test_iter = data.Iterator.splits(
-        (train, val, test), sort_key=lambda x: len(x.Text),  # no global sort, but within-batch-sort
-        batch_sizes=(32, 256, 256), device=0,
+    train_iter, test_iter = data.Iterator.splits(
+        (train, test), sort_key=lambda x: len(x.Text),  # no global sort, but within-batch-sort
+        batch_sizes=(32, 256), device=0,
         sort_within_batch=True, repeat=False)
 
     vocab = TEXT.vocab
@@ -250,7 +259,7 @@ if __name__ == '__main__':
         filter(need_grad, model.parameters()),
         lr=0.001)
 
-    train_module(model, optimizer, train_iter, val_iter,
+    train_module(model, optimizer, train_iter, test_iter,
                  max_epoch=10)
 
     test_accu = eval_model(model, test_iter)
