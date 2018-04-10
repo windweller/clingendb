@@ -233,10 +233,10 @@ def eval_model(model, valid_iter, save_pred=False):
 
 if __name__ == '__main__':
     TEXT = ReversibleField(sequential=True, include_lengths=True)
-    LABEL = data.Field(sequential=False, unk_token=None)
+    LABEL = data.Field(sequential=False, unk_token=None, use_vocab=False)
 
     # train, test = datasets.IMDB.splits(TEXT, LABEL)
-    train, val, test = datasets.SST.splits(TEXT, LABEL)
+    # train, val, test = datasets.SST.splits(TEXT, LABEL)
 
     train, val, test = data.TabularDataset.splits(
         path='./.data/sst_bin/binary/', train='sentiment-train',
@@ -245,7 +245,7 @@ if __name__ == '__main__':
         fields=[('text', TEXT), ('label', LABEL)])
 
     TEXT.build_vocab(train, vectors="glove.6B.{}d".format(args.emb))
-    LABEL.build_vocab(train)
+    # LABEL.build_vocab(train)
 
     train_iter, val_iter, test_iter = data.Iterator.splits(
         (train, val, test), sort_key=lambda x: len(x.text),  # no global sort, but within-batch-sort
