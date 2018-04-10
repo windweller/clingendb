@@ -60,6 +60,8 @@ argparser.add_argument("--seed", type=int, default=123)
 argparser.add_argument("--gpu", type=int, default=-1)
 argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
 argparser.add_argument("--emb_update", action="store_true", help="update embedding")
+argparser.add_argument("--mc_dropout", action="store_true", help="use variational dropout at inference time")
+argparser.add_argument("--dice_loss", action="store_true", help="use Dice loss to solve class imbalance, currently only implemented without extra penalty")
 argparser.add_argument("--l2_penalty_softmax", type=float, default=0., help="add L2 penalty on softmax weight matrices")
 argparser.add_argument("--l2_str", type=float, default=0, help="a scalar that reduces strength")  # 1e-3
 
@@ -81,7 +83,6 @@ argparser.add_argument("--softmax_hier_prod_prob", action="store_true", help="us
 argparser.add_argument("--softmax_hier_sum_logit", action="store_true", help="use hierarchical loss")
 argparser.add_argument("--max_margin_neighbor", type=float, default=0.5,
                        help="maximum should be 1., ")
-
 
 # 1. Softmax loss penalty is basically duplicating the "label"..and count loss twice
 # 2. Prototype loss penalty is adding a closeness constraints (very natrual)
@@ -118,7 +119,28 @@ logger.info(args)
 cos_sim = nn.CosineSimilarity(dim=0)
 
 
-# l1_crit =
+def dice_coeff(pred, target):
+    smooth = 1.
+    num = pred.size(0)
+    m1 = pred.view(num, -1)  # Flatten
+    m2 = target.view(num, -1)  # Flatten
+    intersection = (m1 * m2).sum()
+
+    return (2. * intersection + smooth) / (m1.sum() + m2.sum() + smooth)
+
+
+class SoftDiceLoss(nn.Module):
+    def __init__(self, weight=None, size_average=True):
+        super(SoftDiceLoss, self).__init__()
+
+    def forward(self, logits, targets):
+        probs = F.sigmoid(logits)
+        num = targets.size(0)  # Number of batches
+
+        score = dice_coeff(probs, targets)
+        score = 1 - score.sum() / num
+        return score
+
 
 def move_to_cuda(th_var):
     if torch.cuda.is_available():
@@ -362,6 +384,7 @@ class Model(nn.Module):
 
         return assignment_dist  # , records, reassign_records, votes_dist
 
+
 def preds_to_sparse_matrix(indices, batch_size, label_size):
     # this is for preds
     # indices will be a list: [[0, 0, 0], [0, 0, 1], ...]
@@ -433,6 +456,7 @@ def spread_by_meta_y(y, indices):
 
     y = torch.clamp(y, max=1., min=0.)
     return y
+
 
 def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     # when test_final is true, we save predictions
@@ -571,14 +595,17 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     model.train()
     return correct / cnt
 
+
 prob_threshold = nn.Threshold(1e-5, 0)
+
 
 def train_module(model, optimizer,
                  train_iter, valid_iter, max_epoch):
     model.train()
     criterion = BCEWithLogitsLoss(reduce=False)
-    meta_criterion = nn.BCELoss()
-    margin_criterion = MultiMarginHierarchyLoss(neighbor_maps, class_size=label_size)
+    dice_loss = SoftDiceLoss()
+    # meta_criterion = nn.BCELoss()
+    # margin_criterion = MultiMarginHierarchyLoss(neighbor_maps, class_size=label_size)
 
     exp_cost = None
     end_of_epoch = True  # False  # set true because we want immediate feedback...
@@ -619,7 +646,8 @@ def train_module(model, optimizer,
                     # we only compute it when it has max_out flag
                     for label_j in range(label_size):
                         non_neighbor_indices = non_neighbor_maps[str(label_j)]
-                        outer_vec = torch.sum(softmax_weight[:, non_neighbor_indices], dim=1) / len(non_neighbor_indices)
+                        outer_vec = torch.sum(softmax_weight[:, non_neighbor_indices], dim=1) / len(
+                            non_neighbor_indices)
                         hierarchy_outer_penalty += torch.dot(softmax_weight[:, label_j], outer_vec)
 
                 if args.proto_maxin:
@@ -643,7 +671,7 @@ def train_module(model, optimizer,
                 # this is now logit, not
                 if args.softmax_hier_prod_prob:
                     snomed_values = output_to_prob(output)
-                elif args.softmax_hier_sum_logit: # this should be our default approach
+                elif args.softmax_hier_sum_logit:  # this should be our default approach
                     snomed_values = torch.max(output, move_to_cuda(Variable(torch.zeros(1))))  # max(x, 0)
                 else:
                     raise Exception("Must flag softmax_hier_sum_prob or softmax_hier_sum_logit")
@@ -696,7 +724,10 @@ def train_module(model, optimizer,
                 # nn.MultiMarginLoss
                 # margin_criterion(output, y)
             else:
-                loss = criterion(output, y).mean()
+                if args.dice_loss:
+                    loss = dice_loss(output, y)
+                else:
+                    loss = criterion(output, y).mean()
                 loss.backward()
 
             torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
@@ -785,7 +816,7 @@ if __name__ == '__main__':
 
     TEXT = ReversibleField(sequential=True, include_lengths=True, lower=False)
 
-    label_size = 42 # 18 if args.dataset != "multi_top_snomed_no_des" else 42
+    label_size = 42  # 18 if args.dataset != "multi_top_snomed_no_des" else 42
 
     LABEL = MultiLabelField(sequential=True, use_vocab=False, label_size=label_size, tensor_type=torch.FloatTensor)
 
