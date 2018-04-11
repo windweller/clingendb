@@ -201,8 +201,8 @@ class Model(nn.Module):
     def get_vectors(self, input, lengths=None):
         embed_input = self.embed(input)
 
-        # this is new
-        embed_input = self.drop(embed_input)
+        # this is new, not working ,remove it
+        # embed_input = self.drop(embed_input)
 
         packed_emb = embed_input
         if lengths is not None:
@@ -580,7 +580,10 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
 
         if save_pred:
             y_indices = sparse_one_hot_mat_to_indices(y)
-            condensed_preds = condense_preds(preds_indices.data.cpu().numpy().tolist(), batch_size)
+            if not args.mc_dropout:
+                condensed_preds = condense_preds(preds_indices.data.cpu().numpy().tolist(), batch_size)
+            else:
+                condensed_preds = condense_preds(preds_indices.numpy().tolist(), batch_size)
             condensed_ys = condense_preds(y_indices.data.cpu().numpy().tolist(), batch_size)
 
             all_condensed_preds.extend(condensed_preds)
