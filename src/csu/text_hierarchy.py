@@ -504,18 +504,19 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
             output = model.get_logits(output_vecs)  # this is logits, not sent to sigmoid yet!
         else:
             # [(batch_size, class_scores) * 10]
-            probs = []
+            # probs = []
             outputs = []
             # run 10 times per batch to get mc estimation
             for _ in xrange(10):
                 output_vecs = model.get_vectors(x, x_lengths)
                 output = model.get_logits(output_vecs)
                 outputs += [output.data.cpu().numpy()]
-                probs += [output_to_prob(output).data.cpu().numpy()]  # remember this is batched!!!!
+                # probs += [output_to_prob(output).data.cpu().numpy()]  # remember this is batched!!!!
 
             output_mean = np.mean(outputs, axis=0)
-            predictive_mean = np.mean(probs, axis=0)
-            predictive_variance = np.var(probs, axis=0)
+            # predictive_mean = np.mean(probs, axis=0)
+            # predictive_variance = np.var(probs, axis=0)
+            predictive_variance = np.var(outputs, axis=0)
 
             # Note that we are NOT computing tau; this value is rather small
             # tau = l ** 2 * (1 - model.p) / (2 * N * model.weight_decay)
@@ -546,12 +547,16 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
             scores = output_to_prob(output).data.cpu().numpy()
             preds = output_to_preds(output)
         else:
-            scores = predictive_mean
-            preds = output_to_preds(torch.from_numpy(output_mean))
+            pt_output_mean = torch.from_numpy(output_mean)
+            scores = output_to_prob(pt_output_mean).data.cpu().numpy()
+            preds = output_to_preds(pt_output_mean)
 
         preds_indices = sparse_one_hot_mat_to_indices(preds)
 
-        sparse_preds = preds_to_sparse_matrix(preds_indices.data.cpu().numpy(), batch_size, model.nclasses)
+        if not args.mc_dropout:
+            sparse_preds = preds_to_sparse_matrix(preds_indices.data.cpu().numpy(), batch_size, model.nclasses)
+        else:
+            sparse_preds = preds_to_sparse_matrix(preds_indices.numpy(), batch_size, model.nclasses)
 
         all_scores.extend(scores.tolist())
         all_print_y_labels.extend(y.data.cpu().numpy().tolist())
