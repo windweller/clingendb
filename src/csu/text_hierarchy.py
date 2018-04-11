@@ -201,6 +201,9 @@ class Model(nn.Module):
     def get_vectors(self, input, lengths=None):
         embed_input = self.embed(input)
 
+        # this is new
+        embed_input = self.drop(embed_input)
+
         packed_emb = embed_input
         if lengths is not None:
             lengths = lengths.view(-1).tolist()
@@ -507,7 +510,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
             for _ in xrange(10):
                 output_vecs = model.get_vectors(x, x_lengths)
                 output = model.get_logits(output_vecs)
-                outputs += [output]
+                outputs += [output.data.cpu().numpy()]
                 probs += [output_to_prob(output).data.cpu().numpy()]  # remember this is batched!!!!
 
             output_mean = np.mean(outputs, axis=0)
@@ -519,9 +522,12 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
             # predictive_variance += tau ** -1
 
         if save_viz:
+            # need to turn on model.eval() and turn it back off
+            model.eval()
             # (batch_size, time_step, label_dist)
             label_assignment_tensor = model.get_visualization_tensor_max_assignment(output_vecs)
             all_text_vis.extend(label_assignment_tensor.numpy().tolist())
+            model.train()
 
             # if save_pred:
             # credit_assign = model.get_tensor_credit_assignment(output_vecs)
