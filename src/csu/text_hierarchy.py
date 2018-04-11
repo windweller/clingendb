@@ -548,7 +548,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
             preds = output_to_preds(output)
         else:
             pt_output_mean = torch.from_numpy(output_mean)
-            scores = output_to_prob(pt_output_mean).data.cpu().numpy()
+            scores = output_to_prob(pt_output_mean).cpu().numpy()
             preds = output_to_preds(pt_output_mean)
 
         preds_indices = sparse_one_hot_mat_to_indices(preds)
