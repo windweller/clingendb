@@ -62,6 +62,7 @@ argparser.add_argument("--rand_unk", action="store_true", help="randomly initial
 argparser.add_argument("--emb_update", action="store_true", help="update embedding")
 argparser.add_argument("--mc_dropout", action="store_true", help="use variational dropout at inference time")
 argparser.add_argument("--dice_loss", action="store_true", help="use Dice loss to solve class imbalance, currently only implemented without extra penalty")
+argparser.add_argument("--bidir", action="store_true", help="use bidirectional ")
 argparser.add_argument("--l2_penalty_softmax", type=float, default=0., help="add L2 penalty on softmax weight matrices")
 argparser.add_argument("--l2_str", type=float, default=0, help="a scalar that reduces strength")  # 1e-3
 
@@ -154,13 +155,13 @@ class Model(nn.Module):
         super(Model, self).__init__()
         self.hidden_size = hidden_size
         self.nclasses = nclasses
-        self.drop = nn.Dropout(0.2)
+        self.drop = nn.Dropout(args.dropout)  # embedding dropout
         self.encoder = nn.LSTM(
             emb_dim,
             hidden_size,
             depth,
-            dropout=0.2,
-            bidirectional=False)  # ha...not even bidirectional
+            dropout=args.dropout,
+            bidirectional=args.bidir)  # ha...not even bidirectional
         d_out = hidden_size
         self.out = nn.Linear(d_out, nclasses)  # include bias, to prevent bias assignment
         self.embed = nn.Embedding(len(vocab), emb_dim)
@@ -460,7 +461,9 @@ def spread_by_meta_y(y, indices):
 
 def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     # when test_final is true, we save predictions
-    model.eval()
+    if not args.mc_dropout:
+        model.eval()
+
     criterion = BCEWithLogitsLoss()
     correct = 0.0
     cnt = 0
@@ -479,6 +482,8 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     all_meta_preds = []
     all_meta_y_labels = []
 
+    all_uncertainty = []
+
     # all_credit_assign = []
     # all_la_global = []
     # all_la_local = []
@@ -491,8 +496,27 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
         if iter % 5 == 0 and save_pred:
             logger.info("at iteration {}".format(iter))
 
-        output_vecs = model.get_vectors(x, x_lengths)
-        output = model.get_logits(output_vecs)  # this is logits, not sent to sigmoid yet!
+        if not args.mc_dropout:
+            output_vecs = model.get_vectors(x, x_lengths)
+            output = model.get_logits(output_vecs)  # this is logits, not sent to sigmoid yet!
+        else:
+            # [(batch_size, class_scores) * 10]
+            probs = []
+            outputs = []
+            # run 10 times per batch to get mc estimation
+            for _ in xrange(10):
+                output_vecs = model.get_vectors(x, x_lengths)
+                output = model.get_logits(output_vecs)
+                outputs += [output]
+                probs += [output_to_prob(output).data.cpu().numpy()]  # remember this is batched!!!!
+
+            output_mean = np.mean(outputs, axis=0)
+            predictive_mean = np.mean(probs, axis=0)
+            predictive_variance = np.var(probs, axis=0)
+
+            # Note that we are NOT computing tau; this value is rather small
+            # tau = l ** 2 * (1 - model.p) / (2 * N * model.weight_decay)
+            # predictive_variance += tau ** -1
 
         if save_viz:
             # (batch_size, time_step, label_dist)
@@ -512,8 +536,13 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
         loss = criterion(output, y)
         total_loss += loss.data[0] * x.size(1)
 
-        scores = output_to_prob(output).data.cpu().numpy()
-        preds = output_to_preds(output)
+        if not args.mc_dropout:
+            scores = output_to_prob(output).data.cpu().numpy()
+            preds = output_to_preds(output)
+        else:
+            scores = predictive_mean
+            preds = output_to_preds(output_mean)
+
         preds_indices = sparse_one_hot_mat_to_indices(preds)
 
         sparse_preds = preds_to_sparse_matrix(preds_indices.data.cpu().numpy(), batch_size, model.nclasses)
@@ -522,6 +551,9 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
         all_print_y_labels.extend(y.data.cpu().numpy().tolist())
         all_preds.append(sparse_preds)
         all_y_labels.append(y.data.cpu().numpy())
+
+        if args.mc_dropout:
+            all_uncertainty.extend(predictive_variance.tolist())
 
         # Generate meta-y labels and meta-level predictions
         # meta-y label is:
@@ -571,7 +603,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
                 writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2]})
 
         with open(pjoin(args.run_dir, 'label_vis_map.json'), 'wb') as f:
-            json.dump([all_condensed_preds, all_condensed_ys, all_scores, all_print_y_labels, all_orig_texts], f)
+            json.dump([all_condensed_preds, all_condensed_ys, all_scores, all_uncertainty, all_print_y_labels, all_orig_texts], f)
 
         with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
             json.dump(labels, f)
@@ -603,7 +635,7 @@ def train_module(model, optimizer,
                  train_iter, valid_iter, max_epoch):
     model.train()
     criterion = BCEWithLogitsLoss(reduce=False)
-    dice_loss = SoftDiceLoss()
+    dice_loss = SoftDiceLoss()  # doesn't work at all :P but it's fine...
     # meta_criterion = nn.BCELoss()
     # margin_criterion = MultiMarginHierarchyLoss(neighbor_maps, class_size=label_size)
 
