@@ -48,7 +48,7 @@ argparser.add_argument("--batch_size", "--batch", type=int, default=32)
 argparser.add_argument("--emb_dim", type=int, default=100)
 argparser.add_argument("--max_epoch", type=int, default=5)
 argparser.add_argument("--d", type=int, default=512)
-argparser.add_argument("--dropout", type=float, default=0.3,
+argparser.add_argument("--dropout", type=float, default=0.2,
                        help="dropout of word embeddings and softmax output")
 argparser.add_argument("--rnn_dropout", type=float, default=0.2,
                        help="dropout of RNN layers")
@@ -541,7 +541,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
             preds = output_to_preds(output)
         else:
             scores = predictive_mean
-            preds = output_to_preds(output_mean)
+            preds = output_to_preds(torch.from_numpy(output_mean))
 
         preds_indices = sparse_one_hot_mat_to_indices(preds)
 
