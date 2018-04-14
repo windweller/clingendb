@@ -149,6 +149,8 @@ class Model(nn.Module):
         self.embed.weight.data.copy_(vocab.vectors)
         self.embed.weight.requires_grad = True if args.emb_update else False
 
+        self.emb_dim = emb_dim
+
         # add skim_interval
         if args.local_trans:
             self.trans_w = nn.Parameter(torch.randn(args.skim_interval * emb_dim, emb_dim))
@@ -222,7 +224,28 @@ class Model(nn.Module):
                     # this should be the reduced lengths
                     lengths = [len(range(0, l, args.skim_interval)) for l in lengths]
             elif args.local_trans:
-                pass
+                skimmed_input_vec = []
+                for t in range(0, seq_len, args.skim_interval):
+                    # skimmed = torch.max(output_vec[t:t+args.skim_interval, :, :], 0)[0].squeeze(0)
+                    if t + args.skim_interval < seq_len:
+                        skimmed_vecs = [embed_input[i,:,:] for i in range(t, t + args.skim_interval)]
+                        skimmed_vecs = torch.cat(skimmed_vecs, dim=1) # (batch_size, hidden * time_interval)
+                        skimmed = torch.matmul(skimmed_vecs, self.trans_w)
+                        # skimmed = torch.sum(embed_input[t:t + args.skim_interval, :, :], dim=0)
+                    else:
+                        # we multiply with only part of the matrix
+                        residuals = seq_len % args.skim_interval
+                        skimmed_vecs = [embed_input[i,:,:] for i in range(t, seq_len)]
+                        skimmed_vecs = torch.cat(skimmed_vecs, dim=1)
+                        # only multiply matrix as needed
+                        skimmed = torch.matmul(skimmed_vecs, self.trans_w[0:self.emb_dim * residuals, :])
+                    skimmed_input_vec.append(skimmed)
+                skimmed_input_vec = torch.stack(skimmed_input_vec, dim=0)
+                embed_input = skimmed_input_vec
+                if lengths is not None:
+                    # list(int)
+                    # this should be the reduced lengths
+                    lengths = [len(range(0, l, args.skim_interval)) for l in lengths]
 
         packed_emb = embed_input
         if lengths is not None:
