@@ -213,7 +213,7 @@ class Model(nn.Module):
                     if t + args.skim_interval < seq_len:
                         skimmed = torch.sum(embed_input[t:t + args.skim_interval, :, :], dim=0)
                     else:
-                        skimmed = torch.sum(embed_input[t:seq_len - 1, :, :], dim=0)
+                        skimmed = torch.sum(embed_input[t:seq_len, :, :], dim=0)
                     skimmed_input_vec.append(skimmed)
                 skimmed_input_vec = torch.stack(skimmed_input_vec, dim=0)
                 embed_input = skimmed_input_vec
