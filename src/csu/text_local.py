@@ -226,7 +226,8 @@ class Model(nn.Module):
             elif args.local_trans:
                 skimmed_input_vec = []
                 for t in range(0, seq_len, args.skim_interval):
-                    # skimmed = torch.max(output_vec[t:t+args.skim_interval, :, :], 0)[0].squeeze(0)
+                    # range(t, t+args.skim_interval) will not go out of range
+                    # even when t+args.skim_interval = seq_len
                     if t + args.skim_interval <= seq_len:
                         skimmed_vecs = [embed_input[i,:,:] for i in range(t, t + args.skim_interval)]
                         skimmed_vecs = torch.cat(skimmed_vecs, dim=1) # (batch_size, hidden * time_interval)
