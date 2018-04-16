@@ -64,7 +64,7 @@ argparser.add_argument("--skim", action="store_true", help="a skimming model")
 argparser.add_argument("--skim_interval", type=int, default=5, help="how many words to skim and group together")
 argparser.add_argument("--local_sum", action="store_true", help="sum over an interval")
 argparser.add_argument("--local_trans", action="store_true", help="apply weight matrix instead")
-argparser.add_argument("--local_trans_nonlinear", action="store_true", help="apply weight matrix + nonlinear instead")
+argparser.add_argument("--local_trans_nonlinear", action="store_true", help="apply weight matrix + nonlinear instead, practically a CNN")
 
 argparser.add_argument("--l2_penalty_softmax", type=float, default=0., help="add L2 penalty on softmax weight matrices")
 argparser.add_argument("--l2_str", type=float, default=0, help="a scalar that reduces strength")  # 1e-3
@@ -155,6 +155,10 @@ class Model(nn.Module):
         if args.local_trans:
             self.trans_w = nn.Parameter(torch.randn(args.skim_interval * emb_dim, emb_dim))
 
+        if args.local_trans_nonlinear:
+            self.trans_w = nn.Parameter(torch.randn(args.skim_interval * emb_dim, emb_dim))
+            self.trans_bias = nn.Parameter(torch.randn(emb_dim))
+
         if args.multi_attn:
             # prepare keys
             logger.info("adding attention matrix")
@@ -240,6 +244,27 @@ class Model(nn.Module):
                         skimmed_vecs = torch.cat(skimmed_vecs, dim=1)
                         # only multiply matrix as needed
                         skimmed = torch.matmul(skimmed_vecs, self.trans_w[0:self.emb_dim * residuals, :])
+                    skimmed_input_vec.append(skimmed)
+                skimmed_input_vec = torch.stack(skimmed_input_vec, dim=0)
+                embed_input = skimmed_input_vec
+            elif args.local_trans_nonlinear:
+                skimmed_input_vec = []
+                for t in range(0, seq_len, args.skim_interval):
+                    # range(t, t+args.skim_interval) will not go out of range
+                    # even when t+args.skim_interval = seq_len
+                    if t + args.skim_interval <= seq_len:
+                        skimmed_vecs = [embed_input[i, :, :] for i in range(t, t + args.skim_interval)]
+                        skimmed_vecs = torch.cat(skimmed_vecs, dim=1)  # (batch_size, hidden * time_interval)
+                        skimmed = torch.tanh(torch.matmul(skimmed_vecs, self.trans_w) + self.trans_bias)
+                        # skimmed = torch.sum(embed_input[t:t + args.skim_interval, :, :], dim=0)
+                    else:
+                        # we multiply with only part of the matrix
+                        residuals = seq_len % args.skim_interval
+                        skimmed_vecs = [embed_input[i, :, :] for i in range(t, seq_len)]
+                        skimmed_vecs = torch.cat(skimmed_vecs, dim=1)
+                        # only multiply matrix as needed
+                        skimmed = torch.tanh(torch.matmul(skimmed_vecs, self.trans_w[0:self.emb_dim * residuals, :]) + self.trans_bias)
+
                     skimmed_input_vec.append(skimmed)
                 skimmed_input_vec = torch.stack(skimmed_input_vec, dim=0)
                 embed_input = skimmed_input_vec
