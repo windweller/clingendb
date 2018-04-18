@@ -72,6 +72,7 @@ argparser.add_argument("--l2_str", type=float, default=0, help="a scalar that re
 argparser.add_argument("--prototype", action="store_true", help="use hierarchical loss")
 argparser.add_argument("--softmax_hier", action="store_true", help="use hierarchical loss")
 argparser.add_argument("--max_margin", action="store_true", help="use hierarchical loss")
+argparser.add_argument("--penal_keys", action="store_true", help="apply closeness penalty for keys instead of classifier weights")
 
 argparser.add_argument("--proto_str", type=float, default=1e-3, help="a scalar that reduces strength")
 argparser.add_argument("--proto_out_str", type=float, default=1e-3, help="a scalar that reduces strength")
@@ -343,7 +344,11 @@ class Model(nn.Module):
         else:
             # I guess the key prototype vectors
             # and final vectors are the same...
-            return self.task_queries
+            if args.penal_keys:
+                return self.task_queries
+            else:
+                # so dim is (hidden_size, n_class) after operation
+                return torch.squeeze(self.out_proj).t
 
     def get_weight_map(self, sent_vec, normalize='local'):
         # normalize: 'local' | 'global'
