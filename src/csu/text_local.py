@@ -302,21 +302,6 @@ class Model(nn.Module):
 
             seq_len, batch_size, _ = output_vec.size()
 
-            # Skim!!!
-            skimmed_output_vec = []
-            for t in range(0, seq_len, args.skim_interval):
-                # skimmed = torch.max(output_vec[t:t+args.skim_interval, :, :], 0)[0].squeeze(0)
-                if t+args.skim_interval < seq_len:
-                    skimmed = output_vec[t+args.skim_interval, :, :]
-                else:
-                    skimmed = output_vec[seq_len-1, :, :]
-                skimmed_output_vec.append(skimmed)
-            skimmed_output_vec = torch.stack(skimmed_output_vec, dim=0)
-
-            # (seq_len / skim_interval, batch_size, hid_dim)
-            output_vec = skimmed_output_vec
-            skimmed_len = len(range(0, seq_len, args.skim_interval))
-
             keys = torch.matmul(output_vec, self.task_queries)
 
             # (seq_len, batch_size)
@@ -339,7 +324,7 @@ class Model(nn.Module):
                 # (seq_len, batch_size, hid_dim) x (seq_len, batch_size, 1)
                 # sum over 0
                 # (batch_size, hid_dim)
-                task_specific_list.append(torch.squeeze(torch.sum(output_vec * keys[:, :, t_n].contiguous().view(skimmed_len, batch_size, 1), 0)))
+                task_specific_list.append(torch.squeeze(torch.sum(output_vec * keys[:, :, t_n].contiguous().view(seq_len, batch_size, 1), 0)))
 
             # now it's (batch_size, task_numbers, hid_dim)
             task_specific_mix = torch.stack(task_specific_list, dim=1)
