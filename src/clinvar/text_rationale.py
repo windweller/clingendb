@@ -133,7 +133,7 @@ class Encoder(nn.Module):
         # only select input: [time_seq, batch_size, emb_dim]
         # according to mask z
         # return extracted_input, modified_length
-        masks = move_to_cuda(self.create_mask(lengths))
+        masks = Variable(move_to_cuda(self.create_mask(lengths)))
 
         # z_mask is a float Tensor on cuda, masks is also float on Cuda
         z_mask = z_mask * masks
