@@ -271,7 +271,8 @@ class SampleGenerator(nn.Module):
         self.to_prob = nn.Sigmoid()
 
     def sample(self, z_mask_prob_dist):
-        z_mask = torch.bernoulli(z_mask_prob_dist).detach()
+        # so z_mask is (seq_len, batch_size)
+        z_mask = torch.squeeze(torch.bernoulli(z_mask_prob_dist).detach())
         return z_mask
 
     def forward(self, inputs, lengths=None):
@@ -516,7 +517,7 @@ def train_model(model, optimizer, train_iter, valid_iter, max_epoch):
             enc_loss, gen_cost_logpz, generator_cost, sparsity_cost = model.get_loss(x, x_lengths, y)
 
             if not args.update_gen_only:
-                enc_loss.backward()
+                enc_loss.backward() # retain_variables=True
             gen_cost_logpz.backward()
 
             torch.nn.utils.clip_grad_norm(model.generator.parameters(), args.clip_grad)
