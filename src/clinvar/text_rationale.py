@@ -52,8 +52,8 @@ argparser.add_argument("--emb_update", action="store_true", help="update embeddi
 argparser.add_argument("--pretrain", action="store_true", help="pretrain encoder, and update embedding")
 argparser.add_argument("--max_pool", action="store_true", help="use max-pooling")
 argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
-argparser.add_argument("--pretrain_enc", action="store_true", help="whether to pretrain encoder")
-argparser.add_argument("--update_gen_only", action="store_true", help="During 2nd phase, only update generator, not encoder")
+argparser.add_argument("--update_gen_only", action="store_true",
+                       help="During 2nd phase, only update generator, not encoder")
 argparser.add_argument("--bidir", action="store_true", help="whether to use bidrectional LSTM or not")
 
 args = argparser.parse_args()
@@ -83,6 +83,7 @@ file_handler = logging.FileHandler("{0}/log.txt".format(args.run_dir))
 logging.getLogger().addHandler(file_handler)
 
 logger.info(args)
+
 
 def move_to_cuda(th_var):
     if torch.cuda.is_available():
@@ -392,6 +393,7 @@ class Model(nn.Module):
 
         return enc_loss, gen_cost_logpz, generator_cost, sparsity_cost
 
+
 def eval_model(model, valid_iter, save_pred=False):
     # since we can't really "evaluate" the extract inputs,
     # we can only do encoder eval, basically
@@ -528,9 +530,17 @@ def train_model(model, optimizer, train_iter, valid_iter, max_epoch):
                 exp_cost = 0.99 * exp_cost + 0.01 * gen_cost_logpz.data[0]
 
             if iter % 100 == 0:
-                logging.info("iter {} lr={} gen_loss={} exp_cost={} enc_loss={} sparsity_cost={} \n".format(iter, optimizer.param_groups[0]['lr'],
-                                                                                 gen_cost_logpz.data[0], exp_cost,
-                                                                                enc_loss.data[0], sparsity_cost.data[0]))
+                logging.info("iter {} lr={} gen_loss={} exp_cost={} enc_loss={} sparsity_cost={} \n".format(iter,
+                                                                                                            optimizer.param_groups[
+                                                                                                                0][
+                                                                                                                'lr'],
+                                                                                                            gen_cost_logpz.data[
+                                                                                                                0],
+                                                                                                            exp_cost,
+                                                                                                            enc_loss.data[
+                                                                                                                0],
+                                                                                                            sparsity_cost.data[
+                                                                                                                0]))
 
         valid_accu = eval_model(model, valid_iter)
         sys.stdout.write("epoch {} lr={:.6f} gen_train_loss={:.6f} valid_acc={:.6f}\n".format(
@@ -545,6 +555,7 @@ def train_model(model, optimizer, train_iter, valid_iter, max_epoch):
             best_valid = valid_accu
 
         sys.stdout.write("\n")
+
 
 def get_multiclass_recall(preds, y_label):
     # preds: (label_size), y_label; (label_size)
@@ -661,7 +672,7 @@ def eval_encoder(encoder, valid_iter, save_pred=False):
 
             for pair in zip(all_preds, all_y_labels, all_orig_texts):
                 writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2]})
-        with open(pjoin(args.run_dir,'pretrain_label_map.txt'), 'wb') as f:
+        with open(pjoin(args.run_dir, 'pretrain_label_map.txt'), 'wb') as f:
             json.dump(label_list, f)
 
     return correct / cnt
@@ -799,11 +810,13 @@ if __name__ == '__main__':
         filter(need_grad, model.parameters()),
         lr=0.001)
 
-    pretrain_encoder(encoder, optimizer, train_iter, val_iter,
-                 max_epoch=args.max_epoch)
+    if args.pretrain:
+        pretrain_encoder(encoder, optimizer, train_iter, val_iter,
+                         max_epoch=args.max_epoch)
+        test_accu = eval_encoder(encoder, test_iter, save_pred=True)
+        logger.info("final test accu: {}".format(test_accu))
 
-    test_accu = eval_encoder(encoder, test_iter, save_pred=True)
-    logger.info("final test accu: {}".format(test_accu))
+    logger.info("policy gradient training starts")
 
     # now we start training policy gradient
     train_model(model, optimizer, train_iter, val_iter, args.max_rl_epoch)
