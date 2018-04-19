@@ -22,8 +22,6 @@ import torch.nn as nn
 from torch.autograd import Variable
 from torchtext import data
 
-# from pt_util import BCELoss
-
 import logging
 
 import sys
@@ -50,11 +48,11 @@ argparser.add_argument("--clip_grad", type=float, default=5)
 argparser.add_argument("--run_dir", type=str, default='./exp')
 argparser.add_argument("--seed", type=int, default=123)
 argparser.add_argument("--gpu", type=int, default=-1)
-argparser.add_argument("--sigmoid_loss", action="store_true", help="use sigmoid loss instead of softmax")
 argparser.add_argument("--emb_update", action="store_true", help="update embedding")
 argparser.add_argument("--pretrain", action="store_true", help="pretrain encoder, and update embedding")
 argparser.add_argument("--max_pool", action="store_true", help="use max-pooling")
 argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
+argparser.add_argument("--pretrain_enc", action="store_true", help="whether to pretrain encoder")
 argparser.add_argument("--update_gen_only", action="store_true", help="During 2nd phase, only update generator, not encoder")
 argparser.add_argument("--bidir", action="store_true", help="whether to use bidrectional LSTM or not")
 
@@ -113,6 +111,7 @@ class Encoder(nn.Module):
     def __init__(self, vocab, embed, emb_dim=100, hidden_size=256, depth=1, nclasses=5):
         super(Encoder, self).__init__()
         self.hidden_size = hidden_size
+        self.emb_dim = emb_dim
         self.drop = nn.Dropout(args.dropout)
         self.nclasses = nclasses
         self.lstm = nn.LSTM(
@@ -129,55 +128,57 @@ class Encoder(nn.Module):
 
         self.cross_ent_loss_vec = nn.CrossEntropyLoss(reduce=False)
 
-    def extract_input(self, inputs, z_mask):
-        # only select input: [time_seq, batch_size]
+    def extract_input(self, inputs, lengths, z_mask, train=True):
+        # only select input: [time_seq, batch_size, emb_dim]
         # according to mask z
         # return extracted_input, modified_length
+        masks = move_to_cuda(self.create_mask(lengths))
 
-        masks = inputs != self.vocab.stoi['<pad>']
-        if args.gpu == -1:
-            masks = masks.type(torch.FloatTensor).detach()
+        # z_mask is a float Tensor on cuda, masks is also float on Cuda
+        z_mask = z_mask * masks
+
+        batch_size = z_mask.size(1)
+        z_byte_mask = z_mask.type(torch.ByteTensor)
+        lengths_list = torch.squeeze(torch.sum(z_mask, dim=0)).data.cpu().numpy()
+
+        max_len = np.max(lengths_list)
+        if train:
+            new_embed = Variable(move_to_cuda(torch.zeros(int(max_len), batch_size, self.emb_dim)))
         else:
-            masks = masks.type(torch.cuda.FloatTensor).detach()
+            # this is during evaluation
+            new_embed = Variable(move_to_cuda(torch.zeros(int(max_len), batch_size)))
 
-        # Note that z_mask needs to also be on cuda...which it should be
-        # also z_mask is a variable...
-        z_mask = masks * z_mask
+        # batch together again
+        for i in xrange(batch_size):
+            new_x = torch.masked_select(inputs[:, i], z_byte_mask[:, i]).view(-1, self.emb_dim)
+            curr_len = int(lengths_list[i])
+            new_embed[:curr_len, i] = new_x
 
-        # torch.masked_select needs ByteTensor
-        z_mask = z_mask.type(torch.cuda.ByteTensor)
-
-        list_input = []
-        # iterate through the batch
-        batch_size = masks.shape[1]
-        for i in range(batch_size):
-            t, m = inputs[:, i], z_mask[:, i]
-            # need to handle when mask is all 0...
-            # we just ignore it, and not append to list...batch_size can change :)
-            if len(torch.nonzero(m)) == 0:
-                list_input.append(["<pad>"])  # this is a bit hacky...but should work
-            else:
-                new_t = torch.masked_select(t, m)
-                tok_new_t = TEXT.reverse(new_t.data.view(-1, 1))
-                list_input.append(TEXT.preprocess(tok_new_t[0]))
-
-        x, lengths = TEXT.process(list_input, device=args.gpu, train=True)
-
-        return x, lengths
+        return new_embed, lengths_list
 
     def forward(self, inputs, lengths=None, z_mask=None):
         # input is a padded input with just indices
         # z_mask should not be backpropagatble. Pass in numpy array!
 
-        if z_mask is not None:
-            self.extract_input(inputs, z_mask)
-
         embed_input = self.embed(inputs)
+
+        if z_mask is not None:
+            assert lengths is not None
+            embed_input, lengths = self.extract_input(embed_input, lengths, z_mask)
 
         packed_emb = embed_input
 
         if lengths is not None:
-            lengths = lengths.view(-1).tolist()
+            # sort when z_mask
+            if z_mask:
+                lengths, idx_sort = np.sort(lengths)[::-1], np.argsort(-lengths)
+                idx_unsort = np.argsort(idx_sort)
+
+                idx_sort = move_to_cuda(torch.from_numpy(idx_sort))
+                embed_input = inputs.index_select(1, Variable(idx_sort))
+            else:
+                lengths = lengths.view(-1).tolist()
+
             packed_emb = nn.utils.rnn.pack_padded_sequence(embed_input, lengths)
 
         output, hidden = self.lstm(packed_emb)  # embed_input
@@ -185,7 +186,14 @@ class Encoder(nn.Module):
         if lengths is not None:
             output = nn.utils.rnn.pad_packed_sequence(output)[0]  # return to Tensor
 
+        if z_mask:
+            # Un-sort by length
+            # important!! Otherwise it won't match with y
+            idx_unsort = move_to_cuda(torch.from_numpy(idx_unsort))
+            output = output.index_select(1, Variable(idx_unsort))
+
         if args.max_pool:
+            # TODO: can apply mask here...
             hidden = torch.max(output, 0)[0].squeeze(0)
 
         return output, hidden
@@ -258,37 +266,11 @@ class SampleGenerator(nn.Module):
         d_out = hidden_size * 2 if args.bidir else hidden_size
 
         # we still use multiclass softmax loss
-        if not args.sigmoid_loss:
-            self.output_layer = nn.Linear(in_features=d_out, out_features=2)
-            self.to_prob = nn.Softmax(dim=2)
-        else:
-            self.output_layer = nn.Linear(in_features=d_out, out_features=1)
-            self.to_prob = nn.Sigmoid()
-
-        self.cross_ent_loss_vec = nn.CrossEntropyLoss(reduce=False)  # since we need vector loss
-
-    def binary_cross_entropy(self, logits, labels):
-        # both logits and labels should be Variable
-
-        # max(x, 0) - x * z + log(1 + exp(-abs(x)))
-        logits = logits.view(-1, 1)
-        labels = labels.view(-1, 1)
-        zeros = Variable(torch.Tensor(logits.size()).zero_())
-
-        loss = torch.max(logits, zeros) - logits * labels + torch.log1p(1 + torch.exp(-torch.abs(logits)))
-
-        return loss
+        self.output_layer = nn.Linear(in_features=d_out, out_features=1)
+        self.to_prob = nn.Sigmoid()
 
     def sample(self, z_mask_prob_dist):
-        # now we can call this sample function from outside, once we get prob_dist
-        if not args.sigmoid_loss:
-            z_mask_probs = z_mask_prob_dist[:, :, 1]
-
-            # z_mask will still be a variable (for loss computation), but will not backprop through
-            z_mask = torch.bernoulli(z_mask_probs).detach()  # float tensor is fine and is needed
-        else:
-            z_mask = torch.bernoulli(z_mask_prob_dist).detach()
-
+        z_mask = torch.bernoulli(z_mask_prob_dist).detach()
         return z_mask
 
     def forward(self, inputs, lengths=None):
@@ -324,8 +306,9 @@ class SampleGenerator(nn.Module):
         # based on the paper, search is {2e-4, 3e-4, 4e-4}, and lambda2 = 2 * lambda1
         coherent_factor = sparsity * coherent
 
-        z_sum = torch.sum(z_mask, dim=0)
-        z_diff = torch.abs(z_mask[1:] - z_mask[:-1]).sum(dim=0)
+        # float.Tensor
+        z_sum = torch.sum(z_mask, dim=0)  # temporal dimension
+        z_diff = torch.abs(z_mask[1:] - z_mask[:-1]).sum(dim=0)  # TODO: not checked...not understood
 
         sparsity_coherence_cost = torch.mean(z_sum) * sparsity + torch.mean(z_diff) * coherent_factor
         sparsity_coherence_cost_vec = z_sum * sparsity + z_diff * coherent_factor
@@ -344,9 +327,7 @@ class SampleGenerator(nn.Module):
         # z_mask_probs is still a PyTorch variable
         sparsity_cost, vec_sparsity_cost = self.compute_sparsity_penalty(z_mask, args.sparsity, args.coherent)
 
-        # (seq_len * batch)
-        logpz = self.cross_ent_loss_vec(z_mask_logits.view(-1, 2), z_mask.view(-1).type(torch.cuda.LongTensor))
-        logpz = logpz.view(z_mask.size())
+        logpz = self.bce_loss(z_mask_logits, z_mask)
 
         cost_vec = encoder_loss_vec + vec_sparsity_cost
 
@@ -356,6 +337,7 @@ class SampleGenerator(nn.Module):
         cost_logpz = torch.mean(cost_vec * torch.sum(logpz, dim=0))
 
         return cost_logpz, generator_cost, sparsity_cost
+
 
 class Model(nn.Module):
     def __init__(self, vocab, emb_dim=100, hidden_size=256, depth=1, nclasses=5):
@@ -389,10 +371,10 @@ class Model(nn.Module):
 
         return output, z_mask, sparsity_coherence_cost
 
-    def get_masked_input(self, inputs, z_mask):
+    def get_masked_input(self, inputs, lengths, z_mask):
         # in evaluation, after calling forward(), use this to get the actual extracted inputs
         # and save them
-        trimmed_input, _ = self.encoder.extract_input(inputs, z_mask)
+        trimmed_input, _ = self.encoder.extract_input(inputs, lengths, z_mask)
         return trimmed_input
 
     def get_loss(self, inputs, lengths=None, y_labels=None):
@@ -417,7 +399,6 @@ def eval_model(model, valid_iter, save_pred=False):
     model.encoder.eval()
     model.generator.eval()
 
-    criterion = nn.CrossEntropyLoss()
     correct = 0.0
     cnt = 0
     total_loss = 0.0
@@ -436,17 +417,14 @@ def eval_model(model, valid_iter, save_pred=False):
         output, z_mask, sparsity_coherence_cost = model.forward(x, x_lengths)
         loss, _ = model.encoder.get_encoder_loss(output, y)
 
-        # output = encoder.encode(x, x_lengths)
-        # loss = criterion(output, y)
-
         total_loss += loss.data[0] * x.size(1)  # because cross-ent by default is average
         preds = output.data.max(1)[1]  # already taking max...I think, max returns a tuple
         correct += preds.eq(y.data).cpu().sum()
         cnt += y.numel()
 
-        # TODO: mask the input again, store them like tuple
-        # TODO: (input, extracted_input, pred, label)
-        extracted_input, _ = model.encoder.extract_input(x, z_mask)
+        # TODO: all these are a bit wrong...
+
+        extracted_input, _ = model.encoder.extract_input(x, x_lengths, z_mask, train=False)
 
         extracted_text = TEXT.reverse(extracted_input.data)
         all_extracted_texts.extend(extracted_text)
@@ -509,8 +487,7 @@ def eval_model(model, valid_iter, save_pred=False):
 
     return correct / cnt
 
-# TODO: write main training loop
-# TODO: I don't even think we can "eval" this? emmm...we can, in terms of encoder loss/accuracy with generator mask
+
 def train_model(model, optimizer, train_iter, valid_iter, max_epoch):
     # run the entire model, train with loss/cost generated by model
     # all loss/costs are written into Encoder and Generator...so should be easy!
@@ -520,11 +497,11 @@ def train_model(model, optimizer, train_iter, valid_iter, max_epoch):
     model.generator.train()
 
     exp_cost = None
-    iter = 0
     best_valid = 0.
     epoch = 1
 
     for n in range(max_epoch):
+        iter = 0
         for data in train_iter:
             iter += 1
 
@@ -554,7 +531,6 @@ def train_model(model, optimizer, train_iter, valid_iter, max_epoch):
                 logging.info("iter {} lr={} gen_loss={} exp_cost={} enc_loss={} sparsity_cost={} \n".format(iter, optimizer.param_groups[0]['lr'],
                                                                                  gen_cost_logpz.data[0], exp_cost,
                                                                                 enc_loss.data[0], sparsity_cost.data[0]))
-
 
         valid_accu = eval_model(model, valid_iter)
         sys.stdout.write("epoch {} lr={:.6f} gen_train_loss={:.6f} valid_acc={:.6f}\n".format(
@@ -698,11 +674,11 @@ def pretrain_encoder(encoder, optimizer,
 
     exp_cost = None
     end_of_epoch = True  # False  # set true because we want immediate feedback...
-    iter = 0
     best_valid = 0.
     epoch = 1
 
     for n in range(max_epoch):
+        iter = 0
         for data in train_iter:
             iter += 1
 
@@ -741,6 +717,7 @@ def pretrain_encoder(encoder, optimizer,
             best_valid = valid_accu
 
         sys.stdout.write("\n")
+
 
 def init_emb(vocab, init="randn", num_special_toks=2, mode="unk"):
     # we can try randn or glorot
