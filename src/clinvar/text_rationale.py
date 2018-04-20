@@ -436,7 +436,7 @@ def eval_model(model, valid_iter, save_pred=False):
 
         extracted_input, _ = model.encoder.extract_input(x, x_lengths, z_mask, train=False)
 
-        extracted_text = TEXT.reverse(extracted_input.data)
+        extracted_text = TEXT.reverse(extracted_input.data.type(torch.cuda.LongTensor))
         all_extracted_texts.extend(extracted_text)
 
         orig_text = TEXT.reverse(x.data)
@@ -491,6 +491,9 @@ def eval_model(model, valid_iter, save_pred=False):
 
             for pair in zip(all_preds, all_y_labels, all_orig_texts, all_extracted_texts):
                 writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2], 'extracted': pair[3]})
+
+        with open(pjoin(args.run_dir, 'label_vis_map.json'), 'wb') as f:
+            json.dump([all_preds, all_y_labels, all_orig_texts, all_extracted_texts], f)
 
         with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
             json.dump(label_list, f)
