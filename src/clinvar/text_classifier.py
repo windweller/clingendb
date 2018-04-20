@@ -187,7 +187,7 @@ class Model(nn.Module):
 
             return self.out(output), keys, sparsity_coherence_cost  # (batch_size, time)
 
-        return self.out(hidden)
+        return self.out(hidden[0])
 
 
 def get_multiclass_recall(preds, y_label):
