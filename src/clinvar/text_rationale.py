@@ -145,11 +145,11 @@ class Encoder(nn.Module):
 
         max_len = np.max(lengths_list)
         if train:
-            new_embed = Variable(move_to_cuda(torch.zeros(int(max_len), batch_size, self.emb_dim)))
+            new_embed = Variable(move_to_cuda(torch.zeros(max(int(max_len), 1), batch_size, self.emb_dim)))
         else:
             # this is during evaluation, torch.ones() because
             # 1 corresponds to <pad>, 0 corresponds to <UNK>, we want pad!
-            new_embed = Variable(move_to_cuda(torch.ones(int(max_len), batch_size)))
+            new_embed = Variable(move_to_cuda(torch.ones(max(int(max_len), 1), batch_size)))
 
         # batch together again
         for i in xrange(batch_size):
