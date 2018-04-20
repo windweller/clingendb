@@ -175,7 +175,7 @@ class Encoder(nn.Module):
                 idx_unsort = np.argsort(idx_sort)
 
                 idx_sort = move_to_cuda(torch.from_numpy(idx_sort))
-                embed_input = inputs.index_select(1, Variable(idx_sort))
+                embed_input = embed_input.index_select(1, Variable(idx_sort))
             else:
                 ex_lengths = lengths.view(-1).tolist()
 
