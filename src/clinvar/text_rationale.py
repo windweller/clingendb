@@ -139,7 +139,7 @@ class Encoder(nn.Module):
         z_mask = z_mask * masks.view_as(z_mask)
 
         batch_size = z_mask.size(1)
-        z_byte_mask = z_mask.type(torch.ByteTensor)
+        z_byte_mask = z_mask.type(torch.cuda.ByteTensor)
         lengths_list = torch.squeeze(torch.sum(z_mask, dim=0)).data.cpu().numpy()
 
         max_len = np.max(lengths_list)
