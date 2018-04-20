@@ -155,7 +155,7 @@ class Encoder(nn.Module):
             if train:
                 new_x = torch.masked_select(inputs[:, i], z_byte_mask[:, i]).view(-1, self.emb_dim)
             else:
-                new_x = torch.masked_select(inputs[:, i], z_byte_mask[:, i])  # no emb_dim anymore...
+                new_x = torch.masked_select(inputs[:, i], torch.squeeze(z_byte_mask[:, i]))  # no emb_dim anymore...
             if len(new_x.size()) > 0:  # empty tensor we don't do anything, everything would be 0.
                 new_embed[:lengths_list[i], i] = new_x
             else:
