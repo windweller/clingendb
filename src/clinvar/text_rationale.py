@@ -21,6 +21,7 @@ import torch.nn as nn
 # import torch.nn.functional as F
 from torch.autograd import Variable
 from torchtext import data
+from util import BCEWithLogitsLoss
 
 import logging
 
@@ -264,6 +265,8 @@ class SampleGenerator(nn.Module):
         self.embed = embed
 
         d_out = hidden_size * 2 if args.bidir else hidden_size
+
+        self.bce_loss = BCEWithLogitsLoss(reduce=False)  # this is per action, not averaged
 
         # we still use multiclass softmax loss
         self.output_layer = nn.Linear(in_features=d_out, out_features=1)
