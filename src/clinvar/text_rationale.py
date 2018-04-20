@@ -171,7 +171,7 @@ class Encoder(nn.Module):
 
         if lengths is not None:
             # sort when z_mask
-            if z_mask:
+            if z_mask is not None:
                 lengths, idx_sort = np.sort(lengths)[::-1], np.argsort(-lengths)
                 idx_unsort = np.argsort(idx_sort)
 
@@ -187,7 +187,7 @@ class Encoder(nn.Module):
         if lengths is not None:
             output = nn.utils.rnn.pad_packed_sequence(output)[0]  # return to Tensor
 
-        if z_mask:
+        if z_mask is not None:
             # Un-sort by length
             # important!! Otherwise it won't match with y
             idx_unsort = move_to_cuda(torch.from_numpy(idx_unsort))
