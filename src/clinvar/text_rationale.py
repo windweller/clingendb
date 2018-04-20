@@ -152,7 +152,10 @@ class Encoder(nn.Module):
 
         # batch together again
         for i in xrange(batch_size):
-            new_x = torch.masked_select(inputs[:, i], z_byte_mask[:, i]).view(-1, self.emb_dim)
+            if train:
+                new_x = torch.masked_select(inputs[:, i], z_byte_mask[:, i]).view(-1, self.emb_dim)
+            else:
+                new_x = torch.masked_select(inputs[:, i], z_byte_mask[:, i])  # no emb_dim anymore...
             if len(new_x.size()) > 0:  # empty tensor we don't do anything, everything would be 0.
                 new_embed[:lengths_list[i], i] = new_x
             else:
@@ -430,8 +433,6 @@ def eval_model(model, valid_iter, save_pred=False):
         preds = output.data.max(1)[1]  # already taking max...I think, max returns a tuple
         correct += preds.eq(y.data).cpu().sum()
         cnt += y.numel()
-
-        # TODO: all these are a bit wrong...
 
         extracted_input, _ = model.encoder.extract_input(x, x_lengths, z_mask, train=False)
 
