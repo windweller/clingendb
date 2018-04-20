@@ -288,7 +288,8 @@ class SampleGenerator(nn.Module):
 
     def sample(self, z_mask_prob_dist):
         # so z_mask is (seq_len, batch_size, 1)
-        z_mask = torch.bernoulli(z_mask_prob_dist).detach()
+        # probably shouldn't detach here...
+        z_mask = torch.bernoulli(z_mask_prob_dist) #.detach()
         return z_mask
 
     def forward(self, inputs, lengths=None):
@@ -561,7 +562,7 @@ def train_model(model, optimizer, train_iter, valid_iter, max_epoch):
                                                                                        0],
                                                                                    sparsity_cost.data[
                                                                                        0],
-                                                                          (ex_lengths.sum() / x_lengths.sum()).data[0]
+                                                                          ex_lengths.sum() / float(x_lengths.sum())
                                                                           ))
 
         valid_accu = eval_model(model, valid_iter)
