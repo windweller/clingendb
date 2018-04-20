@@ -351,12 +351,15 @@ class SampleGenerator(nn.Module):
         # need to be detached from previous graph
         encoder_loss_vec = encoder_loss_vec.detach()
 
-        # z_mask_probs is still a PyTorch variable
-        sparsity_cost, vec_sparsity_cost = self.compute_sparsity_penalty(z_mask_logits, args.sparsity, args.coherent)
-
         logpz = self.bce_loss(z_mask_logits, z_mask)
 
-        cost_vec = encoder_loss_vec + vec_sparsity_cost
+        # z_mask_probs is still a PyTorch variable
+        if args.sparsity != 0:
+            sparsity_cost, vec_sparsity_cost = self.compute_sparsity_penalty(z_mask_logits, args.sparsity, args.coherent)
+            cost_vec = encoder_loss_vec + vec_sparsity_cost
+        else:
+            cost_vec = encoder_loss_vec
+            sparsity_cost = 0.
 
         generator_cost = torch.mean(cost_vec)  # this is the reward
 
@@ -391,7 +394,10 @@ class Model(nn.Module):
         # use generator to produce mask
         z_mask, z_mask_logits, z_mask_prob_dist = self.generator.forward(inputs, lengths)
 
-        sparsity_coherence_cost, _ = self.generator.compute_sparsity_penalty(z_mask_logits, args.sparsity, args.coherent)
+        if args.sparsity != 0:
+            sparsity_coherence_cost, _ = self.generator.compute_sparsity_penalty(z_mask_logits, args.sparsity, args.coherent)
+        else:
+            sparsity_coherence_cost = 0.
 
         # encoder (pretrained or not) consumes the mask
         output, ex_lengths = self.encoder.encode(inputs, lengths, z_mask)
