@@ -548,6 +548,9 @@ def train_model(model, optimizer, train_iter, valid_iter, max_epoch):
             (x, x_lengths), y = data.Text, data.Description
             enc_loss, gen_cost_logpz, generator_cost, sparsity_cost, ex_lengths = model.get_loss(x, x_lengths, y)
 
+            if args.sparsity != 0:
+                sparsity_cost = sparsity_cost.data[0]
+
             if not args.update_gen_only:
                 enc_loss.backward()  # retain_variables=True
             gen_cost_logpz.backward()
@@ -574,8 +577,7 @@ def train_model(model, optimizer, train_iter, valid_iter, max_epoch):
                                                                                    exp_cost,
                                                                                    enc_loss.data[
                                                                                        0],
-                                                                                   sparsity_cost.data[
-                                                                                       0],
+                                                                          sparsity_cost,
                                                                           ex_lengths.sum() / float(x_lengths.sum())
                                                                           ))
 
