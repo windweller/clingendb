@@ -205,6 +205,8 @@ class Encoder(nn.Module):
             # TODO: can apply mask here...
             hidden = torch.max(output, 0)[0].squeeze(0)
 
+        if z_mask is not None:
+            return output, hidden, ex_lengths
         return output, hidden
 
     def create_mask(self, lengths):
@@ -231,10 +233,14 @@ class Encoder(nn.Module):
 
     def encode(self, inputs, lengths, z_mask=None):
         # this is for pretraining, used by Model
-        output, hidden = self.forward(inputs, lengths, z_mask)
-        preds = self.out(hidden)
-
-        return preds
+        if z_mask is None:
+            output, hidden = self.forward(inputs, lengths, z_mask)
+            preds = self.out(hidden)
+            return preds
+        else:
+            output, hidden, ex_lengths = self.forward(inputs, lengths, z_mask)
+            preds = self.out(hidden)
+            return preds, ex_lengths
 
     def get_encoder_loss(self, preds, y_labels):
         loss_vec = self.cross_ent_loss_vec(preds, y_labels)
@@ -379,9 +385,9 @@ class Model(nn.Module):
         sparsity_coherence_cost, _ = self.generator.compute_sparsity_penalty(z_mask, args.sparsity, args.coherent)
 
         # encoder (pretrained or not) consumes the mask
-        output = self.encoder.encode(inputs, lengths, z_mask)
+        output, ex_lengths = self.encoder.encode(inputs, lengths, z_mask)
 
-        return output, z_mask, sparsity_coherence_cost
+        return output, z_mask, sparsity_coherence_cost, ex_lengths
 
     def get_masked_input(self, inputs, lengths, z_mask):
         # in evaluation, after calling forward(), use this to get the actual extracted inputs
@@ -394,7 +400,7 @@ class Model(nn.Module):
         z_mask, z_mask_logits, z_mask_prob_dist = self.generator.forward(inputs, lengths)
 
         # encoder (pretrained or not) consumes the mask
-        preds = self.encoder.encode(inputs, lengths, z_mask)
+        preds, ex_lengths = self.encoder.encode(inputs, lengths, z_mask)
         enc_loss, enc_loss_vec = self.encoder.get_encoder_loss(preds, y_labels)
         gen_cost_logpz, generator_cost, sparsity_cost = self.generator.get_loss(enc_loss_vec, z_mask_logits, z_mask)
 
@@ -402,7 +408,7 @@ class Model(nn.Module):
         # generator_cost: encoder loss + sparsity cost
         # sparsity cost: coherent + sparsity
 
-        return enc_loss, gen_cost_logpz, generator_cost, sparsity_cost
+        return enc_loss, gen_cost_logpz, generator_cost, sparsity_cost, ex_lengths
 
 
 def eval_model(model, valid_iter, save_pred=False):
@@ -427,7 +433,7 @@ def eval_model(model, valid_iter, save_pred=False):
         (x, x_lengths), y = data.Text, data.Description
 
         # run the whole model forward mode
-        output, z_mask, sparsity_coherence_cost = model.forward(x, x_lengths)
+        output, z_mask, sparsity_coherence_cost, ex_lengths = model.forward(x, x_lengths)
         loss, _ = model.encoder.get_encoder_loss(output, y)
 
         total_loss += loss.data[0] * x.size(1)  # because cross-ent by default is average
@@ -525,10 +531,10 @@ def train_model(model, optimizer, train_iter, valid_iter, max_epoch):
             model.generator.zero_grad()
 
             (x, x_lengths), y = data.Text, data.Description
-            enc_loss, gen_cost_logpz, generator_cost, sparsity_cost = model.get_loss(x, x_lengths, y)
+            enc_loss, gen_cost_logpz, generator_cost, sparsity_cost, ex_lengths = model.get_loss(x, x_lengths, y)
 
             if not args.update_gen_only:
-                enc_loss.backward() # retain_variables=True
+                enc_loss.backward()  # retain_variables=True
             gen_cost_logpz.backward()
 
             torch.nn.utils.clip_grad_norm(model.generator.parameters(), args.clip_grad)
@@ -542,17 +548,21 @@ def train_model(model, optimizer, train_iter, valid_iter, max_epoch):
                 exp_cost = 0.99 * exp_cost + 0.01 * gen_cost_logpz.data[0]
 
             if iter % 100 == 0:
-                logging.info("iter {} lr={} gen_loss={} exp_cost={} enc_loss={} sparsity_cost={} \n".format(iter,
-                                                                                                            optimizer.param_groups[
-                                                                                                                0][
-                                                                                                                'lr'],
-                                                                                                            gen_cost_logpz.data[
-                                                                                                                0],
-                                                                                                            exp_cost,
-                                                                                                            enc_loss.data[
-                                                                                                                0],
-                                                                                                            sparsity_cost.data[
-                                                                                                                0]))
+                logging.info("iter {} lr={} gen_loss={} "
+                             "exp_cost={} enc_loss={} "
+                             "sparsity_cost={} length_ratio={} \n".format(iter,
+                                                                                   optimizer.param_groups[
+                                                                                       0][
+                                                                                       'lr'],
+                                                                                   gen_cost_logpz.data[
+                                                                                       0],
+                                                                                   exp_cost,
+                                                                                   enc_loss.data[
+                                                                                       0],
+                                                                                   sparsity_cost.data[
+                                                                                       0],
+                                                                          (ex_lengths.sum() / x_lengths.sum()).data[0]
+                                                                          ))
 
         valid_accu = eval_model(model, valid_iter)
         sys.stdout.write("epoch {} lr={:.6f} gen_train_loss={:.6f} valid_acc={:.6f}\n".format(
