@@ -140,7 +140,7 @@ class Encoder(nn.Module):
 
         batch_size = z_mask.size(1)
         z_byte_mask = z_mask.type(torch.cuda.ByteTensor)
-        lengths_list = torch.squeeze(torch.sum(z_mask, dim=0)).data.cpu().numpy()
+        lengths_list = torch.squeeze(torch.sum(z_mask, dim=0)).data.cpu().numpy().astype('int32')
 
         max_len = np.max(lengths_list)
         if train:
@@ -152,8 +152,7 @@ class Encoder(nn.Module):
         # batch together again
         for i in xrange(batch_size):
             new_x = torch.masked_select(inputs[:, i], z_byte_mask[:, i]).view(-1, self.emb_dim)
-            curr_len = int(lengths_list[i])
-            new_embed[:curr_len, i] = new_x
+            new_embed[:lengths_list[i], i] = new_x
 
         return new_embed, lengths_list
 
