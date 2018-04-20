@@ -286,6 +286,8 @@ class SampleGenerator(nn.Module):
         self.output_layer = nn.Linear(in_features=d_out, out_features=1)
         self.to_prob = nn.Sigmoid()
 
+        self.relu = nn.ReLU()
+
     def sample(self, z_mask_prob_dist):
         # so z_mask is (seq_len, batch_size, 1)
         # probably shouldn't detach here...
@@ -318,16 +320,22 @@ class SampleGenerator(nn.Module):
 
         return z_mask, z_mask_logits, z_mask_prob_dist
 
-    def compute_sparsity_penalty(self, z_mask, sparsity=4e-4, coherent=2):
+    def compute_sparsity_penalty(self, z_mask_logits, sparsity=4e-4, coherent=2):
         # this is not considering differentiability
         # z_mask should be sampled results
+
+        # but z_mask might not allow gradients to flow back, so we try
+        # z_mask_prob_dist instead
+
+        # so all negative x is gone...
+        z_mask_probs = self.to_prob(z_mask_logits)
 
         # based on the paper, search is {2e-4, 3e-4, 4e-4}, and lambda2 = 2 * lambda1
         coherent_factor = sparsity * coherent
 
         # float.Tensor
-        z_sum = torch.sum(z_mask, dim=0)  # temporal dimension
-        z_diff = torch.abs(z_mask[1:] - z_mask[:-1]).sum(dim=0)  # TODO: not checked...not understood
+        z_sum = torch.sum(z_mask_probs, dim=0)  # temporal dimension
+        z_diff = torch.abs(z_mask_probs[1:] - z_mask_probs[:-1]).sum(dim=0)  # TODO: not checked...not understood
 
         sparsity_coherence_cost = torch.mean(z_sum) * sparsity + torch.mean(z_diff) * coherent_factor
         sparsity_coherence_cost_vec = z_sum * sparsity + z_diff * coherent_factor
@@ -344,7 +352,7 @@ class SampleGenerator(nn.Module):
         encoder_loss_vec = encoder_loss_vec.detach()
 
         # z_mask_probs is still a PyTorch variable
-        sparsity_cost, vec_sparsity_cost = self.compute_sparsity_penalty(z_mask, args.sparsity, args.coherent)
+        sparsity_cost, vec_sparsity_cost = self.compute_sparsity_penalty(z_mask_logits, args.sparsity, args.coherent)
 
         logpz = self.bce_loss(z_mask_logits, z_mask)
 
@@ -383,7 +391,7 @@ class Model(nn.Module):
         # use generator to produce mask
         z_mask, z_mask_logits, z_mask_prob_dist = self.generator.forward(inputs, lengths)
 
-        sparsity_coherence_cost, _ = self.generator.compute_sparsity_penalty(z_mask, args.sparsity, args.coherent)
+        sparsity_coherence_cost, _ = self.generator.compute_sparsity_penalty(z_mask_logits, args.sparsity, args.coherent)
 
         # encoder (pretrained or not) consumes the mask
         output, ex_lengths = self.encoder.encode(inputs, lengths, z_mask)
