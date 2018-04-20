@@ -153,7 +153,8 @@ class Encoder(nn.Module):
         # batch together again
         for i in xrange(batch_size):
             new_x = torch.masked_select(inputs[:, i], z_byte_mask[:, i]).view(-1, self.emb_dim)
-            new_embed[:lengths_list[i], i] = new_x
+            if len(new_x.size()) > 0:  # empty tensor
+                new_embed[:lengths_list[i], i] = new_x
 
         return new_embed, lengths_list
 
