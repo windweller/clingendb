@@ -164,22 +164,22 @@ class Encoder(nn.Module):
 
         if z_mask is not None:
             assert lengths is not None
-            embed_input, lengths = self.extract_input(embed_input, lengths, z_mask)
+            embed_input, ex_lengths = self.extract_input(embed_input, lengths, z_mask)
 
         packed_emb = embed_input
 
         if lengths is not None:
             # sort when z_mask
             if z_mask is not None:
-                lengths, idx_sort = np.sort(lengths)[::-1], np.argsort(-lengths)
+                ex_lengths, idx_sort = np.sort(ex_lengths)[::-1], np.argsort(-ex_lengths)
                 idx_unsort = np.argsort(idx_sort)
 
                 idx_sort = move_to_cuda(torch.from_numpy(idx_sort))
                 embed_input = inputs.index_select(1, Variable(idx_sort))
             else:
-                lengths = lengths.view(-1).tolist()
+                ex_lengths = lengths.view(-1).tolist()
 
-            packed_emb = nn.utils.rnn.pack_padded_sequence(embed_input, lengths)
+            packed_emb = nn.utils.rnn.pack_padded_sequence(embed_input, ex_lengths)
 
         output, hidden = self.lstm(packed_emb)  # embed_input
 
