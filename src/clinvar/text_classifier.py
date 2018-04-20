@@ -262,7 +262,7 @@ def eval_model(model, valid_iter, save_pred=False):
         loss = criterion(output, y)
         total_loss += loss.data[0] * x.size(1)
 
-        total_sparsity_coherence_cost += sparsity_coherence_cost.data[0] * x.size(1)
+        # total_sparsity_coherence_cost += sparsity_coherence_cost.data[0] * x.size(1)
 
         preds = output.data.max(1)[1]  # already taking max...I think, max returns a tuple
         correct += preds.eq(y.data).cpu().sum()
@@ -362,15 +362,13 @@ def train_module(model, optimizer,
                 exp_cost = 0.99 * exp_cost + 0.01 * loss.data[0]
 
             if iter % 100 == 0:
-                logging.info("iter {} lr={} train_loss={} exp_cost={} sparsity_coherence_cost={} \n".format(iter,
-                                                                                                            optimizer.param_groups[
-                                                                                                                0][
-                                                                                                                'lr'],
-                                                                                                            loss.data[
-                                                                                                                0],
-                                                                                                            exp_cost,
-                                                                                                            sparsity_coherence_cost.data[
-                                                                                                                0]))
+                logging.info("iter {} lr={} train_loss={} exp_cost={} \n".format(iter,
+                                                                                 optimizer.param_groups[
+                                                                                     0][
+                                                                                     'lr'],
+                                                                                 loss.data[
+                                                                                     0],
+                                                                                 exp_cost))
 
         valid_accu, valid_sparsity_coherence_cost = eval_model(model, valid_iter)
         sys.stdout.write("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f} valid_sparsity_cost={:6f}\n".format(
