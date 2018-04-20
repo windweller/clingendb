@@ -136,7 +136,7 @@ class Encoder(nn.Module):
         masks = Variable(move_to_cuda(self.create_mask(lengths)))
 
         # z_mask is a float Tensor on cuda, masks is also float on Cuda
-        z_mask = z_mask * masks
+        z_mask = z_mask * masks.view_as(z_mask)
 
         batch_size = z_mask.size(1)
         z_byte_mask = z_mask.type(torch.ByteTensor)
@@ -271,8 +271,8 @@ class SampleGenerator(nn.Module):
         self.to_prob = nn.Sigmoid()
 
     def sample(self, z_mask_prob_dist):
-        # so z_mask is (seq_len, batch_size)
-        z_mask = torch.squeeze(torch.bernoulli(z_mask_prob_dist).detach())
+        # so z_mask is (seq_len, batch_size, 1)
+        z_mask = torch.bernoulli(z_mask_prob_dist).detach()
         return z_mask
 
     def forward(self, inputs, lengths=None):
