@@ -153,8 +153,11 @@ class Encoder(nn.Module):
         # batch together again
         for i in xrange(batch_size):
             new_x = torch.masked_select(inputs[:, i], z_byte_mask[:, i]).view(-1, self.emb_dim)
-            if len(new_x.size()) > 0:  # empty tensor
+            if len(new_x.size()) > 0:  # empty tensor we don't do anything, everything would be 0.
                 new_embed[:lengths_list[i], i] = new_x
+            else:
+                # if it's empty, need to set the length to be 1
+                lengths_list[i] = 1
 
         return new_embed, lengths_list
 
