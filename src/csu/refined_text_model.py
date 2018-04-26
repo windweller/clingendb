@@ -888,7 +888,7 @@ if __name__ == '__main__':
         meta_label_mapping = json.load(f)
         # {42: 14} maps snomed_indexed_label -> meta_labels
 
-    with open('../../data/csu/snomed_labels_to_name.json', 'r') as f:
+    with open('../../data/csu/snomed_refined_labels_to_name.json', 'r') as f:
         labels = json.load(f)
 
     logger.info("available labels are: ")
