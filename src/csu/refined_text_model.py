@@ -74,8 +74,15 @@ argparser.add_argument("--beta", type=float, default=1e-2,
 
 argparser.add_argument("--penal_keys", action="store_true",
                        help="apply closeness penalty for keys instead of classifier weights")
-
 argparser.add_argument("--proto_cos", action="store_true", help="use cosine distance instead of dot product")
+
+argparser.add_argument("--reject", action="store_true",
+                       help="learn a simple linear model to reject")
+# essentially we are rejecting (or converting aggregate prob) by summing or averaging them
+# not the same as our confidence calculation
+argparser.add_argument("--gamma", type=float, default=0.1,
+                       help="rejection cost, should be < 0.5 for size_average=True, "
+                            "should be < 0.5 * m for size_average=False")
 
 args = argparser.parse_args()
 
@@ -154,6 +161,15 @@ class Model(nn.Module):
             self.normalize = torch.nn.Softmax(dim=0)
         else:
             self.out = nn.Linear(d_out, nclasses)  # include bias, to prevent bias assignment
+
+        if args.reject:
+            # we add more parameters
+            # takes in logits or probs as input, and output whether to drop or not
+            # reject based on the whole batch
+            self.reject_model = nn.Sequential(
+                nn.Linear(nclasses, 1),
+                nn.Sigmoid()
+            )
 
     # this is the main function used
     def forward(self, input, lengths=None):
@@ -686,6 +702,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
 # ignore probability smaller than 1e-5 0.00001 <-> 0.01%
 prob_threshold = nn.Threshold(1e-5, 0)
 
+# average of each example
 criterion = BCEWithLogitsLoss(reduce=False)
 meta_criterion = nn.BCELoss()
 
@@ -696,6 +713,7 @@ def train_module(model, optimizer,
 
     exp_cost = None
     end_of_epoch = True  # False  # set true because we want immediate feedback...
+    training_rejectiong_rate = []
 
     best_valid = 0.
     epoch = 1
@@ -714,6 +732,8 @@ def train_module(model, optimizer,
 
             output = model(x, x_lengths)  # this is just logit (before calling sigmoid)
 
+            batch_size = x.size(1)
+
             if args.cluster:
                 loss = criterion(output, y)
 
@@ -724,9 +744,9 @@ def train_module(model, optimizer,
                 w_bar = softmax_weight.sum(1) / label_size  # w_bar
 
                 omega_mean = softmax_weight.pow(2).sum()
-
                 omega_between = 0.
                 omega_within = 0.
+
                 for c in xrange(len(meta_category_groups)):
                     m_c = len(meta_category_groups[c])
                     w_c_bar = softmax_weight[:, meta_category_groups[c]].sum(1) / m_c
@@ -739,16 +759,11 @@ def train_module(model, optimizer,
                     w_c_bar = singleton_groups[s]
                     omega_between += (w_c_bar - w_bar).pow(2).sum()
 
-                loss = loss.mean() + omega_mean * args.sigma_M + omega_between * args.sigma_B \
-                       + omega_within * args.sigma_W
-
-                loss.backward()
             elif args.softmax_hier:
                 # compute loss for the meta-category level
 
                 # (Batch, n_classes)
                 snomed_values = output_to_prob(output)
-                batch_size = x.size(1)
 
                 # generate meta-label
                 y_indices = sparse_one_hot_mat_to_indices(y)
@@ -757,8 +772,7 @@ def train_module(model, optimizer,
                 # no meta-label present (very rare, since it's a batch)
                 if meta_y.sum() == 0.:
                     no_meta_label += 1
-                    loss = criterion(output, y).mean()
-                    loss.backward()
+                    loss = criterion(output, y)
                 else:
                     # meta-lbel present
                     meta_y = move_to_cuda(Variable(torch.from_numpy(meta_y)))
@@ -775,14 +789,31 @@ def train_module(model, optimizer,
 
                     assert meta_probs.size(1) == meta_label_size
 
-                    loss = criterion(output, y).mean()  # original loss
-                    meta_loss = criterion(meta_probs, meta_y).mean()  # hierarchy loss
+                    loss = criterion(output, y)  # original loss
+                    meta_loss = criterion(meta_probs, meta_y)  # hierarchy loss
                     loss += meta_loss * args.beta
-                    loss.backward()
-
             else:
-                loss = criterion(output, y).mean()
-                loss.backward()
+                loss = criterion(output, y)
+
+            if args.reject:
+                s = torch.squeeze(model.reject_model(output))  # (batch_size)
+                # per example loss
+                loss = (1-s) * loss + s * args.gamma
+                # collect average rejection size
+                training_rejectiong_rate.append(s.mean().data[0])
+
+            if args.cluster:
+                # because here we do loss.mean()
+                # omega_mean is already applied to every example: n * ||w||^2
+                # omega_between, omega_within are only computed once
+                # should be scaled down with batch_size; otherwise can be too dominating
+                # the rest
+                loss = loss.mean() + omega_mean * args.sigma_M + (omega_between * args.sigma_B \
+                       + omega_within * args.sigma_W) / batch_size
+            else:
+                loss = loss.mean()
+
+            loss.backward()
 
             torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
 
@@ -794,8 +825,12 @@ def train_module(model, optimizer,
                 exp_cost = 0.99 * exp_cost + 0.01 * loss.data[0]
 
             if iter % 100 == 0:
-                logger.info("iter {} lr={} train_loss={} exp_cost={} no_meta_label={} \n".format(iter, optimizer.param_groups[0]['lr'],
-                                                                                loss.data[0], exp_cost, no_meta_label))
+                if len(training_rejectiong_rate) > 0:
+                    avg_rej_rate = sum(training_rejectiong_rate) / float(len(training_rejectiong_rate))
+                else:
+                    avg_rej_rate = 0.
+                logger.info("iter {} lr={} train_loss={} exp_cost={} rej={} no_meta_label={} \n".format(iter, optimizer.param_groups[0]['lr'],
+                                                                                loss.data[0], exp_cost, avg_rej_rate, no_meta_label))
 
         valid_accu = eval_model(model, valid_iter)
         logger.info("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
