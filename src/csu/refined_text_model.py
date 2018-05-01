@@ -63,7 +63,7 @@ argparser.add_argument("--local_trans", action="store_true", help="apply weight 
 argparser.add_argument("--local_trans_nonlinear", action="store_true",
                        help="apply weight matrix + nonlinear instead, practically a CNN")
 
-argparser.add_argument("--prototype", action="store_true", help="use hierarchical loss")
+argparser.add_argument("--cluster", action="store_true", help="use hierarchical loss")
 argparser.add_argument("--sigma_M", type=float, default=0, help="L2 norms of the weight vectors")  # 1e-3
 argparser.add_argument("--sigma_B", type=float, default=0, help="the distance between cluster vectors")  # 1e-3
 argparser.add_argument("--sigma_W", type=float, default=0, help="the distance within cluster vectors")  # 1e-3
@@ -714,7 +714,7 @@ def train_module(model, optimizer,
 
             output = model(x, x_lengths)  # this is just logit (before calling sigmoid)
 
-            if args.prototype:
+            if args.cluster:
                 loss = criterion(output, y)
 
                 # three penalty terms:
