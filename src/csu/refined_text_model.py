@@ -914,7 +914,7 @@ if __name__ == '__main__':
     need_grad = lambda x: x.requires_grad
     optimizer = optim.Adam(
         filter(need_grad, model.parameters()),
-        lr=0.001, weight_decay=args.l2_str)
+        lr=0.001) # weight_decay=0.
 
     train_module(model, optimizer, train_iter, val_iter,
                  max_epoch=args.max_epoch)
