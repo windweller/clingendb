@@ -55,6 +55,7 @@ argparser.add_argument("--gpu", type=int, default=-1)
 argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
 argparser.add_argument("--emb_update", action="store_true", help="update embedding")
 argparser.add_argument("--multi_attn", action="store_true", help="create task-specific representations")
+
 argparser.add_argument("--skim", action="store_true", help="a skimming model")
 argparser.add_argument("--skim_interval", type=int, default=5, help="how many words to skim and group together")
 argparser.add_argument("--local_sum", action="store_true", help="sum over an interval")
@@ -62,27 +63,19 @@ argparser.add_argument("--local_trans", action="store_true", help="apply weight 
 argparser.add_argument("--local_trans_nonlinear", action="store_true",
                        help="apply weight matrix + nonlinear instead, practically a CNN")
 
-argparser.add_argument("--l2_penalty_softmax", type=float, default=0., help="add L2 penalty on softmax weight matrices")
-argparser.add_argument("--l2_str", type=float, default=0, help="a scalar that reduces strength")  # 1e-3
-
 argparser.add_argument("--prototype", action="store_true", help="use hierarchical loss")
-argparser.add_argument("--softmax_hier", action="store_true", help="use hierarchical loss")
-argparser.add_argument("--max_margin", action="store_true", help="use hierarchical loss")
+argparser.add_argument("--sigma_M", type=float, default=0, help="L2 norms of the weight vectors")  # 1e-3
+argparser.add_argument("--sigma_B", type=float, default=0, help="the distance between cluster vectors")  # 1e-3
+argparser.add_argument("--sigma_W", type=float, default=0, help="the distance within cluster vectors")  # 1e-3
+
+argparser.add_argument("--softmax_hier", action="store_true", help="use hierarchical loss, we use prod product instead")
+argparser.add_argument("--beta", type=float, default=1e-2,
+                       help="a scalar controls penalty for not falling in the group")
+
 argparser.add_argument("--penal_keys", action="store_true",
                        help="apply closeness penalty for keys instead of classifier weights")
 
-argparser.add_argument("--proto_str", type=float, default=1e-3, help="a scalar that reduces strength")
-argparser.add_argument("--proto_out_str", type=float, default=1e-3, help="a scalar that reduces strength")
 argparser.add_argument("--proto_cos", action="store_true", help="use cosine distance instead of dot product")
-argparser.add_argument("--proto_maxout", action="store_true", help="maximize between-group distance")
-argparser.add_argument("--proto_maxin", action="store_true", help="maximize in-group distance")
-argparser.add_argument("--softmax_str", type=float, default=1e-2,
-                       help="a scalar controls penalty for not falling in the group")
-argparser.add_argument("--softmax_hier_prod_prob", action="store_true", help="use hierarchical loss, instead of sum, "
-                                                                             "we do it correctly, product instead")
-argparser.add_argument("--softmax_hier_sum_logit", action="store_true", help="use hierarchical loss")
-argparser.add_argument("--max_margin_neighbor", type=float, default=0.5,
-                       help="maximum should be 1., ")
 
 args = argparser.parse_args()
 
@@ -460,13 +453,6 @@ class Model(nn.Module):
         sent_vec, indices = torch.max(output, 0)
         n_weight_map = self.get_weight_map(sent_vec)
 
-        # we record how many times each dimension voted to DIFFERENT candidate/label
-        # records = torch.zeros(batch_size, seq_len)
-        # records how often we actually reassign when the label changed
-        # reassign_records = torch.zeros(batch_size, seq_len)
-        # votes distribution: indices (how many votes per word has)
-        # votes_dist = torch.zeros(batch_size, seq_len)
-
         # not sure if there's Torch tensor-op that will solve this
         for b in range(batch_size):
             # this is per-example, we record used time_steps
@@ -536,23 +522,30 @@ def condense_preds(indices, batch_size):
 
     return condensed_preds
 
+# def generate_meta_y(indices, meta_label_size, batch_size):
+#     a = np.array([[0.] * meta_label_size for _ in range(batch_size)], dtype=np.float32)
+#     matched = defaultdict(set)  # not necessary right?? since we only make it 1.
+#     for b, l in indices:
+#         if b not in matched:
+#             a[b, meta_label_mapping[str(l)]] = 1.
+#             matched[b].add(meta_label_mapping[str(l)])
+#         elif meta_label_mapping[str(l)] not in matched[b]:
+#             a[b, meta_label_mapping[str(l)]] = 1.
+#             matched[b].add(meta_label_mapping[str(l)])
+#
+#     assert np.sum(a <= 1) == a.size
+#
+#     return a
 
-# I think this is good now.
 def generate_meta_y(indices, meta_label_size, batch_size):
     a = np.array([[0.] * meta_label_size for _ in range(batch_size)], dtype=np.float32)
-    matched = defaultdict(set)
     for b, l in indices:
-        if b not in matched:
-            a[b, meta_label_mapping[str(l)]] = 1.
-            matched[b].add(meta_label_mapping[str(l)])
-        elif meta_label_mapping[str(l)] not in matched[b]:
-            a[b, meta_label_mapping[str(l)]] = 1.
-            matched[b].add(meta_label_mapping[str(l)])
+        if l in label_id_to_meta_group:
+            a[b, label_id_to_meta_group[l]] = 1.
 
+    # will generate meta_y=(0, 0, ..., 0) if no match
     assert np.sum(a <= 1) == a.size
-
     return a
-
 
 def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     # when test_final is true, we save predictions
@@ -693,20 +686,22 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
 # ignore probability smaller than 1e-5 0.00001 <-> 0.01%
 prob_threshold = nn.Threshold(1e-5, 0)
 
+criterion = BCEWithLogitsLoss(reduce=False)
+meta_criterion = nn.BCELoss()
+
 
 def train_module(model, optimizer,
                  train_iter, valid_iter, max_epoch):
     model.train()
-    criterion = BCEWithLogitsLoss(reduce=False)
-    meta_criterion = nn.BCELoss()
-    margin_criterion = MultiMarginHierarchyLoss(neighbor_maps, class_size=label_size)
 
     exp_cost = None
     end_of_epoch = True  # False  # set true because we want immediate feedback...
 
     best_valid = 0.
     epoch = 1
+    no_meta_label = 0.
 
+    # (d_out, 1)
     softmax_weight = model.get_softmax_weight()
 
     for n in range(max_epoch):
@@ -721,91 +716,70 @@ def train_module(model, optimizer,
 
             if args.prototype:
                 loss = criterion(output, y)
-                hierarchy_inner_penalty = 0.
-                hierarchy_outer_penalty = 0.
-                proto_count = 0.
-                # prototype constraints are pair-wise dot product (cosine similarities)
-                for meta_i in range(meta_label_size):
-                    grouped_indices = label_grouping[str(meta_i)]
-                    for pair_a, pair_b in itertools.combinations(grouped_indices, 2):
-                        # compute dot product
-                        if args.proto_cos:
-                            # dist = 1 - cos_sim
-                            hierarchy_inner_penalty += 1 - cos_sim(softmax_weight[:, pair_a], softmax_weight[:, pair_b])
-                        else:
-                            hierarchy_inner_penalty += torch.dot(softmax_weight[:, pair_a], softmax_weight[:, pair_b])
-                        proto_count += 1
-                hierarchy_inner_penalty = hierarchy_inner_penalty / proto_count  # average
 
-                if args.proto_maxout:
-                    # we only compute it when it has max_out flag
-                    for label_j in range(label_size):
-                        non_neighbor_indices = non_neighbor_maps[str(label_j)]
-                        outer_vec = torch.sum(softmax_weight[:, non_neighbor_indices], dim=1) / len(
-                            non_neighbor_indices)
-                        hierarchy_outer_penalty += torch.dot(softmax_weight[:, label_j], outer_vec)
+                # three penalty terms:
+                # Omega_mean, Omega_between, Omega_within
+                # Omega_mean
 
-                if args.proto_maxin:
-                    # maximize inner distance as well
-                    loss = loss.mean() + hierarchy_inner_penalty * args.proto_str
-                else:
-                    # multiply a scalar, and maximize this value
-                    loss = loss.mean() - hierarchy_inner_penalty * args.proto_str + hierarchy_outer_penalty * args.proto_out_str
+                w_bar = softmax_weight.sum(1) / label_size  # w_bar
 
-                # add L2 penalty on prototype vectors
-                # loss += softmax_weight.norm(2, dim=0).sum() * args.generate
+                omega_mean = softmax_weight.pow(2).sum()
 
-                # instead, we do TensorFlow convention
-                loss += softmax_weight.pow(2).sum() / 2 * args.l2_penalty_softmax
+                omega_between = 0.
+                omega_within = 0.
+                for c in xrange(len(meta_category_groups)):
+                    m_c = len(meta_category_groups[c])
+                    w_c_bar = softmax_weight[:, meta_category_groups[c]].sum(1) / m_c
+                    omega_between += m_c * (w_c_bar - w_bar).pow(2).sum()
+                    for i in meta_category_groups[c]:
+                        omega_within += (softmax_weight[:, i] - w_c_bar).pow(2).sum()
+
+                # singleton groups need to be penalized as well in this setting
+                for s in xrange(len(singleton_groups)):
+                    w_c_bar = singleton_groups[s]
+                    omega_between += (w_c_bar - w_bar).pow(2).sum()
+
+                loss = loss.mean() + omega_mean * args.sigma_M + omega_between * args.sigma_B \
+                       + omega_within * args.sigma_W
 
                 loss.backward()
             elif args.softmax_hier:
-                # compute loss for the higher level
-                #   # (Batch, n_classes)
+                # compute loss for the meta-category level
 
-                # this is now logit, not
-                if args.softmax_hier_prod_prob:
-                    snomed_values = output_to_prob(output)
-                elif args.softmax_hier_sum_logit:  # this should be our default approach
-                    snomed_values = torch.max(output, move_to_cuda(Variable(torch.zeros(1))))  # max(x, 0)
-                else:
-                    raise Exception("Must flag softmax_hier_sum_prob or softmax_hier_sum_logit")
-
+                # (Batch, n_classes)
+                snomed_values = output_to_prob(output)
                 batch_size = x.size(1)
-                meta_probs = []
-
-                # sum these prob into meta group
-                for i in range(meta_label_size):
-                    if args.softmax_hier_sum_logit:
-                        meta_probs.append(snomed_values[:, label_grouping[str(i)]].sum(1))
-                    elif args.softmax_hier_prod_prob:
-                        # 1 - (1 - p_1)(...)(1 - p_n)
-                        meta_prob = (1 - snomed_values[:, label_grouping[str(i)]]).prod(1)
-                        # threshold at 1e-5
-                        meta_probs.append(prob_threshold(meta_prob))  # we don't want really small probability
-
-                meta_probs = torch.stack(meta_probs, dim=1)
-
-                assert meta_probs.size(1) == meta_label_size
-
-                # just here to safeguard any potential problem!
-                if args.softmax_hier_sum_prob:
-                    meta_probs = torch.clamp(meta_probs, min=0., max=1.)
 
                 # generate meta-label
                 y_indices = sparse_one_hot_mat_to_indices(y)
                 meta_y = generate_meta_y(y_indices.data.cpu().numpy().tolist(), meta_label_size, batch_size)
-                meta_y = move_to_cuda(Variable(torch.from_numpy(meta_y)))
 
-                loss = criterion(output, y).mean()  # original loss
-                meta_loss = criterion(meta_probs, meta_y).mean()  # hierarchy loss
-                loss += meta_loss * args.softmax_str
-                loss.backward()
+                # no meta-label present (very rare, since it's a batch)
+                if meta_y.sum() == 0.:
+                    no_meta_label += 1
+                    loss = criterion(output, y).mean()
+                    loss.backward()
+                else:
+                    # meta-lbel present
+                    meta_y = move_to_cuda(Variable(torch.from_numpy(meta_y)))
 
-            elif args.max_margin:
-                pass
-                # nn.MultiMarginLoss
-                # margin_criterion(output, y)
+                    meta_probs = [] # list of list of probability
+                    # sum these prob into meta group
+                    for i in range(meta_label_size):
+                        # 1 - (1 - p_1)(...)(1 - p_n)
+                        meta_prob = (1 - snomed_values[:, meta_category_groups[i]]).prod(1)
+                        # threshold at 1e-5
+                        meta_probs.append(prob_threshold(meta_prob))  # we don't want really small probability
+
+                    meta_probs = torch.stack(meta_probs, dim=1)
+
+                    assert meta_probs.size(1) == meta_label_size
+
+                    loss = criterion(output, y).mean()  # original loss
+                    meta_loss = criterion(meta_probs, meta_y).mean()  # hierarchy loss
+                    loss += meta_loss * args.beta
+                    loss.backward()
+
             else:
                 loss = criterion(output, y).mean()
                 loss.backward()
@@ -820,8 +794,8 @@ def train_module(model, optimizer,
                 exp_cost = 0.99 * exp_cost + 0.01 * loss.data[0]
 
             if iter % 100 == 0:
-                logger.info("iter {} lr={} train_loss={} exp_cost={} \n".format(iter, optimizer.param_groups[0]['lr'],
-                                                                                loss.data[0], exp_cost))
+                logger.info("iter {} lr={} train_loss={} exp_cost={} no_meta_label={} \n".format(iter, optimizer.param_groups[0]['lr'],
+                                                                                loss.data[0], exp_cost, no_meta_label))
 
         valid_accu = eval_model(model, valid_iter)
         logger.info("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
@@ -861,32 +835,28 @@ def init_emb(vocab, init="randn", num_special_toks=2):
 
 if __name__ == '__main__':
 
-    with open('../../data/csu/snomed_label_to_meta_neighbors.json', 'rb') as f:
-        neighbor_maps = json.load(f)
-        # {0: [12, 34, 13]}
-        # turn this into neighbor matrices.
-        # Remember in this way,
-        # if a label in a group appears together, we are over-adding. From 1 to 1.2
+    meta_category_groups = [
+        [0, 17],
+        [1, 2, 9, 10],
+        [3, 20],
+        [4, 5, 7, 12, 16, 18, 23, 33],
+        [6, 24],
+        [11, 31],
+        [29, 30],
+        [13, 14, 17, 19],
+        [15, 26],
+    ]
+    meta_label_size = len(meta_category_groups)
 
-        # be careful of row/column
-        neighbor_mat_np = np.zeros((len(neighbor_maps), len(neighbor_maps)), dtype="float32")
-        for nei_i in range(len(neighbor_maps)):
-            ns = neighbor_maps[str(nei_i)]
-            neighbor_mat_np[nei_i][ns] = 0.01  # args.softmax_str
+    task_weight_indices = [item for items in meta_category_groups for item in items]
 
-        neighbor_mat = move_to_cuda(Variable(torch.from_numpy(neighbor_mat_np), requires_grad=False))
+    # useful for cluster penalty
+    singleton_groups = [32, 34, 35, 8, 21, 22, 25, 27, 28]
 
-    with open('../../data/csu/snomed_label_to_meta_non_neighbors.json', 'rb') as f:
-        non_neighbor_maps = json.load(f)
-
-    with open('../../data/csu/snomed_label_to_meta_grouping.json', 'rb') as f:
-        label_grouping = json.load(f)
-        # {0: [12, 34, 13],
-        meta_label_size = len(label_grouping)
-
-    with open('../../data/csu/snomed_label_to_meta_map.json', 'rb') as f:
-        meta_label_mapping = json.load(f)
-        # {42: 14} maps snomed_indexed_label -> meta_labels
+    # label id maps to meta group
+    label_id_to_meta_group = {0: 0, 1: 1, 2: 1, 3: 2, 4: 3, 5: 3, 6: 4, 7: 3, 9: 1, 10: 1, 11: 5, 12: 3, 13: 7, 14: 7,
+                              15: 8, 16: 3, 17: 7,
+                              18: 3, 19: 7, 20: 2, 23: 3, 24: 4, 26: 8, 29: 6, 30: 6, 31: 5, 33: 3}
 
     with open('../../data/csu/snomed_refined_labels_to_name.json', 'r') as f:
         labels = json.load(f)
@@ -914,7 +884,7 @@ if __name__ == '__main__':
             fields=[('Text', TEXT), ('Description', LABEL)])
 
     # actually, this is the first point of improvement: load in clinical embedding instead!!!
-    TEXT.build_vocab(train, vectors="glove.6B.100d")
+    TEXT.build_vocab(train, vectors="glove.6B.{}d".format(args.emb_dim))
 
     # do repeat=False
     train_iter, val_iter, test_iter = data.Iterator.splits(
