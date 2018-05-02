@@ -680,11 +680,10 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
 
         sparse_preds = preds_to_sparse_matrix(preds_indices.data.cpu().numpy(), batch_size, model.nclasses)
 
-        if save_pred:
-            all_scores.extend(scores.tolist())
-            all_print_y_labels.extend(y.data.cpu().numpy().tolist())
-            all_preds.append(sparse_preds)
-            all_y_labels.append(y.data.cpu().numpy())
+        all_scores.extend(scores.tolist())
+        all_print_y_labels.extend(y.data.cpu().numpy().tolist())
+        all_preds.append(sparse_preds)
+        all_y_labels.append(y.data.cpu().numpy())
 
         # Generate meta-y labels and meta-level predictions
         # meta-y label is:
@@ -1017,7 +1016,3 @@ if __name__ == '__main__':
 
     test_accu = eval_model(model, test_iter, save_pred=True, save_viz=False)
     logger.info("final test accu: {}".format(test_accu))
-
-    import shap
-
-    shap.force_plot(shap_values, X)
