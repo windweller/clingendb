@@ -670,7 +670,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
 
             # clear out for the rest
             output = output[non_rejects.detach(), :]  # selecting ones that are not rejecting
-            x = x[:, non_rejects.detach(), :]  # (time_seq, batch_size, dim)
+            x = x[:, non_rejects.detach()]  # (time_seq, batch_size, dim)
             y = y[non_rejects.detach(), :]  # (batch_size, label_size)
             batch_size = batch_size - rejected_batch_size  # int, new non-rejected batch size
 
@@ -1020,3 +1020,6 @@ if __name__ == '__main__':
 
     test_accu = eval_model(model, test_iter, save_pred=True, save_viz=False)
     logger.info("final test accu: {}".format(test_accu))
+
+    import shap
+    shap.force_plot()
