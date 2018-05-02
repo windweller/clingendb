@@ -538,6 +538,7 @@ def condense_preds(indices, batch_size):
 
     return condensed_preds
 
+
 # def generate_meta_y(indices, meta_label_size, batch_size):
 #     a = np.array([[0.] * meta_label_size for _ in range(batch_size)], dtype=np.float32)
 #     matched = defaultdict(set)  # not necessary right?? since we only make it 1.
@@ -563,10 +564,11 @@ def generate_meta_y(indices, meta_label_size, batch_size):
     assert np.sum(a <= 1) == a.size
     return a
 
+
 def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     # when test_final is true, we save predictions
     model.eval()
-    criterion = BCEWithLogitsLoss()
+    criterion = BCEWithLogitsLoss(reduce=False)
     correct = 0.0
     cnt = 0
     total_loss = 0.0
@@ -584,7 +586,15 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     all_meta_preds = []
     all_meta_y_labels = []
 
-    # TODO: save prob of each example
+    # we save something else for rejected examples
+    # in order to look at them closely
+    reject_scores = []
+    reject_preds = []
+    reject_y_labels = []
+    reject_print_y_labels = []
+    reject_orig_texts = []
+    reject_condensed_preds = []
+    reject_condensed_ys = []
 
     iter = 0
     for data in valid_iter:
@@ -613,7 +623,54 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
         batch_size = x.size(1)
 
         loss = criterion(output, y)
+
+        if args.reject:
+            reject_probs = model.reject_model(output)  # [batch_size]
+            loss = (1 - reject_probs) * loss + reject_probs * args.gamma
+
+        loss = loss.mean()
+
         total_loss += loss.data[0] * x.size(1)
+
+        if args.reject:
+            # when we reject, in validation; we actually take out
+            # output: [batch_size, label_size]
+            non_rejects = reject_probs < 0.5
+            rejects = reject_probs >= 0.5
+            rejected_output = output[rejects.detach(), :]  # ones we reject
+            rejected_batch_size = rejects.sum().cpu().data[0]
+
+            if save_pred:
+                rejected_x = x[:, rejects.detach(), :]
+                rejected_y = y[rejects.detach(), :]
+
+                reject_scores = output_to_prob(rejected_output).data.cpu().numpy()
+                reject_preds = output_to_preds(rejected_output)
+                reject_preds_indices = sparse_one_hot_mat_to_indices(reject_preds)
+
+                reject_sparse_preds = preds_to_sparse_matrix(reject_preds_indices.data.cpu().numpy(),
+                                                             rejected_batch_size, model.nclasses)
+
+                reject_scores.extend(reject_scores.tolist())
+                reject_print_y_labels.extend(rejected_y.data.cpu().numpy().tolist())
+                reject_preds.append(reject_sparse_preds)
+                reject_y_labels.append(rejected_y.data.cpu().numpy())
+
+                reject_orig_text = TEXT.reverse(rejected_x.data)
+                reject_orig_texts.extend(reject_orig_text)
+
+                reject_y_indices = sparse_one_hot_mat_to_indices(rejected_y)
+                reject_condensed_pred = condense_preds(reject_preds_indices.data.cpu().numpy().tolist(), rejected_batch_size)
+                reject_condensed_y = condense_preds(reject_y_indices.data.cpu().numpy().tolist(), rejected_batch_size)
+
+                reject_condensed_preds.extend(reject_condensed_pred)
+                reject_condensed_ys.extend(reject_condensed_y)
+
+            # clear out for the rest
+            output = output[non_rejects.detach(), :]  # selecting ones that are not rejecting
+            x = x[:, non_rejects.detach(), :]  # (time_seq, batch_size, dim)
+            y = y[non_rejects.detach(), :]  # (batch_size, label_size)
+            batch_size = batch_size - rejected_batch_size  # int, new non-rejected batch size
 
         scores = output_to_prob(output).data.cpu().numpy()
         preds = output_to_preds(output)
@@ -621,17 +678,17 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
 
         sparse_preds = preds_to_sparse_matrix(preds_indices.data.cpu().numpy(), batch_size, model.nclasses)
 
-        all_scores.extend(scores.tolist())
-        all_print_y_labels.extend(y.data.cpu().numpy().tolist())
-        all_preds.append(sparse_preds)
-        all_y_labels.append(y.data.cpu().numpy())
+        if save_pred:
+            all_scores.extend(scores.tolist())
+            all_print_y_labels.extend(y.data.cpu().numpy().tolist())
+            all_preds.append(sparse_preds)
+            all_y_labels.append(y.data.cpu().numpy())
 
         # Generate meta-y labels and meta-level predictions
         # meta-y label is:
         # meta_y = generate_meta_y(y_indices.data.cpu().numpy().tolist(), meta_label_size, batch_size)
         # meta-level prediction needs additional code
 
-        # TODO: this is possibly incorrect?...not that we are using accuracy...
         correct += metrics.accuracy_score(y.data.cpu().numpy(), sparse_preds)
         cnt += 1
 
@@ -673,11 +730,12 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
             for pair in zip(all_condensed_preds, all_condensed_ys, all_orig_texts):
                 writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2]})
 
+        if args.reject:
+            with open(pjoin(args.run_dir, 'label_vis_map_reject.json'), 'wb') as f:
+                json.dump([reject_condensed_preds, reject_condensed_ys, reject_scores, reject_print_y_labels, reject_orig_texts], f)
+
         with open(pjoin(args.run_dir, 'label_vis_map.json'), 'wb') as f:
             json.dump([all_condensed_preds, all_condensed_ys, all_scores, all_print_y_labels, all_orig_texts], f)
-
-        with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
-            json.dump(labels, f)
 
     if save_viz:
         import csv
@@ -692,10 +750,6 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
         with open(pjoin(args.run_dir, 'label_vis_map.json'), 'wb') as f:
             json.dump([all_condensed_preds, all_condensed_ys, all_orig_texts, all_text_vis], f)
 
-        with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
-            json.dump(labels, f)
-
-    model.train()
     return correct / cnt
 
 
@@ -777,7 +831,7 @@ def train_module(model, optimizer,
                     # meta-lbel present
                     meta_y = move_to_cuda(Variable(torch.from_numpy(meta_y)))
 
-                    meta_probs = [] # list of list of probability
+                    meta_probs = []  # list of list of probability
                     # sum these prob into meta group
                     for i in range(meta_label_size):
                         # 1 - (1 - p_1)(...)(1 - p_n)
@@ -798,7 +852,7 @@ def train_module(model, optimizer,
             if args.reject:
                 s = torch.squeeze(model.reject_model(output))  # (batch_size)
                 # per example loss
-                loss = (1-s) * loss + s * args.gamma
+                loss = (1 - s) * loss + s * args.gamma
                 # collect average rejection size
                 training_rejectiong_rate.append(s.mean().data[0])
 
@@ -809,7 +863,7 @@ def train_module(model, optimizer,
                 # should be scaled down with batch_size; otherwise can be too dominating
                 # the rest
                 loss = loss.mean() + omega_mean * args.sigma_M + (omega_between * args.sigma_B \
-                       + omega_within * args.sigma_W) / batch_size
+                                                                  + omega_within * args.sigma_W) / batch_size
             else:
                 loss = loss.mean()
 
@@ -829,8 +883,13 @@ def train_module(model, optimizer,
                     avg_rej_rate = sum(training_rejectiong_rate) / float(len(training_rejectiong_rate))
                 else:
                     avg_rej_rate = 0.
-                logger.info("iter {} lr={} train_loss={} exp_cost={} rej={} no_meta_label={} \n".format(iter, optimizer.param_groups[0]['lr'],
-                                                                                loss.data[0], exp_cost, avg_rej_rate, no_meta_label))
+                logger.info("iter {} lr={} train_loss={} exp_cost={} rej={} no_meta_label={} \n".format(iter,
+                                                                                                        optimizer.param_groups[
+                                                                                                            0]['lr'],
+                                                                                                        loss.data[0],
+                                                                                                        exp_cost,
+                                                                                                        avg_rej_rate,
+                                                                                                        no_meta_label))
 
         valid_accu = eval_model(model, valid_iter)
         logger.info("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
@@ -949,7 +1008,7 @@ if __name__ == '__main__':
     need_grad = lambda x: x.requires_grad
     optimizer = optim.Adam(
         filter(need_grad, model.parameters()),
-        lr=0.001) # weight_decay=0.
+        lr=0.001)  # weight_decay=0.
 
     train_module(model, optimizer, train_iter, val_iter,
                  max_epoch=args.max_epoch)
