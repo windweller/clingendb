@@ -637,8 +637,8 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
         if args.reject:
             # when we reject, in validation; we actually take out
             # output: [batch_size, label_size]
-            non_rejects = reject_probs < 0.5
-            rejects = reject_probs >= 0.5
+            non_rejects = (reject_probs < 0.5).type(torch.cuda.LongTensor)
+            rejects = (reject_probs >= 0.5).type(torch.cuda.LongTensor)
             rejected_output = output[rejects.detach(), :]  # ones we reject
             rejected_batch_size = rejects.sum().cpu().data[0]
 
@@ -1017,3 +1017,7 @@ if __name__ == '__main__':
 
     test_accu = eval_model(model, test_iter, save_pred=True, save_viz=False)
     logger.info("final test accu: {}".format(test_accu))
+
+    import shap
+
+    shap.force_plot(shap_values, X)
