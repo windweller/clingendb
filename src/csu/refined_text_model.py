@@ -706,6 +706,10 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
 
     multiclass_f1_msg = 'Multiclass F1 - '
 
+    if len(all_preds) == 0:
+        print("Rejection model chooses to skip all examples")
+        return 0.
+
     preds = np.vstack(all_preds)
     ys = np.vstack(all_y_labels)
 
