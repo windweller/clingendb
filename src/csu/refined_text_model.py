@@ -848,9 +848,9 @@ def train_module(model, optimizer,
 
                     assert meta_probs.size(1) == meta_label_size
 
-                    loss = criterion(output, y)  # original loss
+                    loss = criterion(output, y).mean()  # original loss
                     meta_loss = criterion(meta_probs, meta_y)  # hierarchy loss
-                    loss += meta_loss * args.beta
+                    loss += meta_loss.mean(dim=1) * args.beta
             else:
                 loss = criterion(output, y)
 
