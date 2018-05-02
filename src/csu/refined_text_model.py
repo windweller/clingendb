@@ -166,6 +166,8 @@ class Model(nn.Module):
             # we add more parameters
             # takes in logits or probs as input, and output whether to drop or not
             # reject based on the whole batch
+
+            # (batch_size, label_size)
             self.reject_model = nn.Sequential(
                 nn.Linear(nclasses, 1),
                 nn.Sigmoid()
@@ -852,7 +854,7 @@ def train_module(model, optimizer,
             if args.reject:
                 s = torch.squeeze(model.reject_model(output))  # (batch_size)
                 # per example loss
-                loss = (1 - s) * loss + s * args.gamma
+                loss = (1 - s) * loss.mean(dim=1) + s * args.gamma
                 # collect average rejection size
                 training_rejectiong_rate.append(s.mean().data[0])
 
