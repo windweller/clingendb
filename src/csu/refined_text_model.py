@@ -850,7 +850,7 @@ def train_module(model, optimizer,
                         else:
                             meta_prob = 1 - (1 - snomed_values[:, meta_category_groups[i]]).prod(1)
                         # threshold at 1e-5
-                        meta_probs.append(prob_threshold(meta_prob))  # we don't want really small probability
+                        meta_probs.append(prob_threshold(torch.squeeze(meta_prob)))  # we don't want really small probability
 
                     meta_probs = torch.stack(meta_probs, dim=1)
 
@@ -944,14 +944,13 @@ def init_emb(vocab, init="randn", num_special_toks=2):
 if __name__ == '__main__':
 
     meta_category_groups = [
-        [0, 17],
         [1, 2, 9, 10],
         [3, 20],
         [4, 5, 7, 12, 16, 18, 23, 33],
         [6, 24],
         [11, 31],
         [29, 30],
-        [13, 14, 17, 19],
+        [0, 13, 14, 17, 19],
         [15, 26],
     ]
 
