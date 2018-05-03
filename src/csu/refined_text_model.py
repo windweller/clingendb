@@ -84,6 +84,9 @@ argparser.add_argument("--gamma", type=float, default=0.1,
                        help="rejection cost, should be < 0.5 for size_average=True, "
                             "should be < 0.5 * m for size_average=False")
 
+argparser.add_argument("--in_singleton", action="store_true",
+                       help="include singletons as meta-groups as well; this is the same as original setting")
+
 args = argparser.parse_args()
 
 VERY_NEGATIVE_NUMBER = -1e30
@@ -669,6 +672,8 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
                 reject_condensed_ys.extend(reject_condensed_y)
 
             # clear out for the rest
+            # TODO: this is wrong....
+            # TODO: Long Tensor index thinks it's extracting 0-th element...
             output = output[non_rejects.detach(), :]  # selecting ones that are not rejecting
             x = x[:, non_rejects.detach()]  # (time_seq, batch_size, dim)
             y = y[non_rejects.detach(), :]  # (batch_size, label_size)
@@ -850,7 +855,7 @@ def train_module(model, optimizer,
 
                     loss = criterion(output, y).mean(dim=1)  # original loss
                     meta_loss = criterion(meta_probs, meta_y)  # hierarchy loss
-                    loss += meta_loss.mean(dim=1) * args.beta
+                    preds_indices.mean(dim=1) * args.beta
             else:
                 loss = criterion(output, y)
 
@@ -945,6 +950,7 @@ if __name__ == '__main__':
         [13, 14, 17, 19],
         [15, 26],
     ]
+
     meta_label_size = len(meta_category_groups)
 
     task_weight_indices = [item for items in meta_category_groups for item in items]
@@ -956,6 +962,15 @@ if __name__ == '__main__':
     label_id_to_meta_group = {0: 0, 1: 1, 2: 1, 3: 2, 4: 3, 5: 3, 6: 4, 7: 3, 9: 1, 10: 1, 11: 5, 12: 3, 13: 7, 14: 7,
                               15: 8, 16: 3, 17: 7,
                               18: 3, 19: 7, 20: 2, 23: 3, 24: 4, 26: 8, 29: 6, 30: 6, 31: 5, 33: 3}
+
+    if args.in_singleton:
+        meta_id = len(meta_category_groups)
+        for s in singleton_groups:
+            meta_category_groups += [s]
+            label_id_to_meta_group[s] = meta_id
+            meta_id += 1
+
+        meta_label_size = len(meta_category_groups)
 
     with open('../../data/csu/snomed_refined_labels_to_name.json', 'r') as f:
         labels = json.load(f)
