@@ -845,7 +845,7 @@ def train_module(model, optimizer,
                     # sum these prob into meta group
                     for i in range(meta_label_size):
                         # 1 - (1 - p_1)(...)(1 - p_n)
-                        if meta_category_groups[i] == 1:
+                        if len(meta_category_groups[i]) == 1:
                             meta_prob = snomed_values[:, meta_category_groups[i]]
                         else:
                             meta_prob = 1 - (1 - snomed_values[:, meta_category_groups[i]]).prod(1)
@@ -970,7 +970,7 @@ if __name__ == '__main__':
     if args.in_singleton:
         meta_id = len(meta_category_groups)
         for s in singleton_groups:
-            meta_category_groups += [s]
+            meta_category_groups.append([s])
             label_id_to_meta_group[s] = meta_id
             meta_id += 1
 
