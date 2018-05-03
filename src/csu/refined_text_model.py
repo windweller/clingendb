@@ -845,7 +845,10 @@ def train_module(model, optimizer,
                     # sum these prob into meta group
                     for i in range(meta_label_size):
                         # 1 - (1 - p_1)(...)(1 - p_n)
-                        meta_prob = (1 - snomed_values[:, meta_category_groups[i]]).prod(1)
+                        if meta_category_groups[i] == 1:
+                            meta_prob = snomed_values[:, meta_category_groups[i]]
+                        else:
+                            meta_prob = 1 - (1 - snomed_values[:, meta_category_groups[i]]).prod(1)
                         # threshold at 1e-5
                         meta_probs.append(prob_threshold(meta_prob))  # we don't want really small probability
 
@@ -853,9 +856,10 @@ def train_module(model, optimizer,
 
                     assert meta_probs.size(1) == meta_label_size
 
-                    loss = criterion(output, y).mean(dim=1)  # original loss
-                    meta_loss = criterion(meta_probs, meta_y)  # hierarchy loss
-                    preds_indices.mean(dim=1) * args.beta
+                    loss = criterion(output, y).mean(dim=1)  # original loss (per batch)
+                    meta_loss = criterion(meta_probs, meta_y).mean(dim=1)  # hierarchy loss
+                    # preds_indices.mean(dim=1) * args.beta
+                    loss += meta_loss * args.beta
             else:
                 loss = criterion(output, y)
 
