@@ -1,0 +1,178 @@
+"""
+Process Adobe dataset
+and map to 42 top-level SNOMED codes (disease codes)
+"""
+
+import re
+import numpy as np
+import json
+import pandas as pd
+import sys
+import copy
+import csv
+from collections import defaultdict
+
+vet_tc = pd.read_csv("../../data/csu/Files_for_parsing/snomed_vet_tc.csv", sep='\t')
+
+
+def subtype_id_test(x):
+    temp_df1 = (vet_tc[['subtype']][vet_tc['supertype'] == x])
+    results = temp_df1['subtype']
+    return results.tolist()
+
+
+def supertype_id_test(x):
+    temp_df1 = (vet_tc[['supertype']][vet_tc['subtype'] == x])
+    results = temp_df1['supertype']
+    return results.tolist()
+
+
+def write_to_tsv(data, file_name, label_list):
+    # we are translating labels here
+    with open(file_name, 'wb') as f:
+        for line in data:
+            mapped_labels = [str(label_list.index(l)) for l in line[1].split()]
+            f.write(line[0] + '\t' + " ".join(mapped_labels) + '\n')
+
+
+# the disease level labels we are trying to catch
+with open('../../data/csu/snomed_labels.json', 'r') as f:
+    snomed_labels = json.load(f)
+    snomed_label_set = set(snomed_labels[:-1])
+    clinical_finding = '404684003'
+
+with open('../../data/csu/snomed_labels_to_name.json', 'r') as f:
+    snomed_names = json.load(f)
+
+np.random.seed(1234)
+
+
+def get_most_freq_label(dic):
+    most_f_l = None
+    most_f_f = 0.
+    for l, f in dic.iteritems():
+        if f > most_f_f:
+            most_f_l = l
+    return most_f_l
+
+
+def collapse_label(list_labels):
+    # collapse and filter at the same time
+    flat_list_labels = [item for items in list_labels for item in items if len(item) > 0]
+    new_label_set = set()
+    for l in flat_list_labels:
+
+        clinical_finding_tag = False
+        found_diseas = False
+        for super_l in supertype_id_test(int(float(l))):
+            # this is strictly searching for disease
+            super_l = str(super_l)
+            if super_l in snomed_label_set:
+                new_label_set.add(super_l)  # set, so ok for repeating add
+                found_diseas = True
+
+            if super_l == clinical_finding:
+                clinical_finding_tag = True
+                # but we only add in the very end
+
+        # if clinical finding tag is present, no disease is, we add it
+        if clinical_finding_tag and not found_diseas:
+            new_label_set.add(clinical_finding)
+
+    return list(new_label_set)
+
+
+def cleanhtml(raw_html):
+    cleanr = re.compile('<.*?>')
+    cleantext = re.sub(cleanr, '', raw_html)
+    cleantext = re.sub(r'^https?:\/\/.*[\r\n]*', '', cleantext, flags=re.MULTILINE)
+    return cleantext
+
+
+def clean_date(text):
+    cleanr = re.compile('(\d+).(\d+).(\d+)')  # 09/14/16, 9.27.11, 9-27-11
+    cleantext = re.sub(cleanr, '', text)
+    return cleantext
+
+
+def remove_date_time(text):
+    # starts with more complex pattern, and then match down to simpler patterns
+    cleanr = re.compile('((\d+).(\d+).(\d+)) +(\d+).(\d+)[ |pPAa][ |pPAamM].')
+    # 09/14/16 1:45 PM JessicaL
+    # 09/04/10 3:08pm - katt/Curt
+    # 12/13/2013 1101am
+    cleantext = re.sub(cleanr, '', text)
+
+    # 7/7/2014 1530
+    cleanr = re.compile('((\d+).(\d+).(\d+)) +(\d+).(\d+)')
+    cleantext = re.sub(cleanr, '', cleantext)
+
+    # 4/6/16 Nichelason
+    cleanr = re.compile('((\d+).(\d+).(\d+)) +')
+    cleantext = re.sub(cleanr, '', cleantext)
+
+    # 6/14/11 ak 1359
+    # only first part will be removed, not 1359
+
+    return cleantext
+
+
+def preprocess_text(text):
+    # this seems to be performing well :)
+    no_date_time = remove_date_time(text)
+
+    one_white_space = ' '.join(no_date_time.split())
+    no_html_entities = re.sub('&[a-z]+;', '', one_white_space)
+
+    return no_html_entities
+
+
+def count_freq(list_labels):
+    dic = defaultdict(int)
+    for l in list_labels:
+        dic[l] += 1
+    return dic
+
+
+if __name__ == '__main__':
+    header = True
+
+    examples = []
+    seq_labels_dist = []
+    labels_dist = []
+    label_num_per_example = []
+    total_text = 0
+
+    empty_seq_label_cnt = 0
+    with open("../../data/csu/Files_for_parsing/adobe_DJ.csv", 'r') as f:
+        csv_reader = csv.reader(f)
+        for columns in csv_reader:
+            total_text += 1
+            if header:
+                header = False
+                continue
+
+            # to get rid of rows that don't have labels
+            # or have words
+            condense_labels = [l.split('|') for l in columns[19:] if len(l) > 0 and not l.lower().islower()]
+            if len(condense_labels) == 0:
+                continue
+
+            labels = collapse_label(condense_labels)
+
+            text = preprocess_text(columns[9] + ' ' + columns[10] + ' ' + columns[11] + ' ' + columns[12])
+
+            labels_dist.extend(labels)
+
+            examples.append([text, " ".join(labels)])
+
+    labels_dist = count_freq(labels_dist)
+    label_list = snomed_labels
+
+    print("number of labels is {}".format(len(labels_dist)))
+
+    print "code, name, n"
+    for s_l in snomed_labels:
+        print "{}\t{}\t{}".format(s_l, snomed_names[snomed_labels.index(s_l)], labels_dist[s_l])
+
+    write_to_tsv(examples, "../../data/csu/adobe_snomed_multi_label_no_des_test.tsv", label_list)

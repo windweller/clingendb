@@ -58,6 +58,7 @@ argparser.add_argument("--clip_grad", type=float, default=5)
 argparser.add_argument("--run_dir", type=str, default='./exp')
 argparser.add_argument("--seed", type=int, default=123)
 argparser.add_argument("--gpu", type=int, default=-1)
+argparser.add_argument("--load_model", action="store_true", help="load model according to run_dir position")
 argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
 argparser.add_argument("--emb_update", action="store_true", help="update embedding")
 argparser.add_argument("--mc_dropout", action="store_true", help="use variational dropout at inference time")
@@ -228,56 +229,6 @@ class Model(nn.Module):
     def get_softmax_weight(self):
         return self.out.weight
 
-    def get_weight_map(self, sent_vec, normalize='local'):
-        # normalize: 'local' | 'global'
-        # global norm, local select will call this function twice...
-        # Warning: old method, do not use
-
-        # sent_vec: (batch_size, vec_dim)
-        s_weight = self.get_softmax_weight()
-        # multiply: sent_vec * s_weight
-        # (batch_size, vec_dim) * (vec_dim, label_size)
-
-        # so we reshape (this is verified)
-        # (batch_size, 1, vec_dim) * (1, label_size, vec_dim)
-        # result: (batch_size, label_size, vec_dim)
-        weight_map = sent_vec.view(-1, 1, self.hidden_size) * s_weight.view(1, self.nclasses, self.hidden_size)
-
-        # normalize along label_size
-        norm_dim = 1 if normalize == 'local' else 2
-        n_weight_map = nn.Softmax(dim=norm_dim)(weight_map)
-
-        # we return for every single time step that's used, a label distribution
-        # then in visualization we can cut it out, meddle however we want
-        return n_weight_map
-
-    def get_time_contrib_map(self, sent_vec, indices, batch_size, seq_len):
-        s_weight = self.get_softmax_weight()
-        # s_weight: (hidden_size, n_classes)
-        # sent_vec: (batch_size, hidden_size)
-
-        weight_map = sent_vec.view(-1, self.hidden_size, 1) * s_weight.view(1, self.hidden_size, self.nclasses)
-        # (batch_size, vec_dim, label_size)
-        # note this shape is DIFFERENT from the other method
-        # weight_map is un-normalized
-
-        # this by default gets FloatTensor
-        assignment_dist = torch.zeros(batch_size, seq_len, self.nclasses)
-
-        for b in range(batch_size):
-            # (we just directly sum the influence, if the timestep is already in there!)
-            time_steps = set()
-            for d in range(self.hidden_size):
-                time_step = indices.data.cpu()[b, d]
-                if time_step in time_steps:
-                    # sum of history happens here
-                    assignment_dist[b, time_step, :] += weight_map.data.cpu()[b, d, :]
-                else:
-                    assignment_dist[b, time_step, :] = weight_map.data.cpu()[b, d, :]
-
-        # return (batch, time, label_size), not all time steps are filled up, many are 0
-        return assignment_dist
-
     def directional_norm(self, contrib_map):
         # in fact this is just unitize
         # use non-masked contrib-map
@@ -290,104 +241,6 @@ class Model(nn.Module):
         normed_contrib_map = contrib_map / normed_denom
 
         return normed_contrib_map
-
-    def get_tensor_credit_assignment(self, output):
-        # also sum of history...
-        # assign by-label credits, no conflicts
-        # return [batch_size, time_step, label_size]
-
-        seq_len, batch_size, _ = output.size()
-
-        sent_vec, indices = torch.max(output, 0)
-        contrib_map = self.get_time_contrib_map(sent_vec, indices, batch_size, seq_len)
-        normed_contrib_map = self.directional_norm(contrib_map)  # global unitized, now directional!
-
-        return normed_contrib_map
-
-    def get_tensor_label_attr(self, output):
-        seq_len, batch_size, _ = output.size()
-
-        sent_vec, indices = torch.max(output, 0)
-        contrib_map = self.get_time_contrib_map(sent_vec, indices, batch_size, seq_len)
-
-        # we reuse the exp_mask function, but need to have custom mask
-        mask = (contrib_map != 0.).type(
-            torch.FloatTensor)  # surprisingly your exp_mask function asks mask to indicate what's there...
-        zero_mask = 1 - mask
-
-        # here, we choose to do local and global normalization, so we return 2 contrib_maps
-        # this is only used for global normalization
-        masked_contrib_map = self.exp_mask(contrib_map, mask, no_var=True)  # no need to put mask as variable
-        # because contrib_map itself is not variable
-
-        # then do local normalization, and multiply by zero_mask to cancel weights from 0 time steps
-        # emmm, this is correct
-
-        # (batch, time, label_size)
-        global_normed_contrib_map = torch.nn.Softmax(dim=1)(masked_contrib_map)
-        local_normed_contrib_map = torch.nn.Softmax(dim=2)(masked_contrib_map)  # local masks still matter
-        local_normed_contrib_map *= zero_mask  # to make sure [0,0,0] will not be [0.3, 0.3, 0.3]
-        # masked contrib map gives correct weight assignment
-
-        return global_normed_contrib_map, local_normed_contrib_map
-
-    def get_visualization_tensor_max_assignment(self, output):
-        # NOTE: this returns a tensor, not a dictionary
-
-        # indices = get_label_attribution()
-        # return [batch_size, time_step, label_distribution]
-        # for time_step with no assignment, we do [0, 0, ..., 0]
-        # this method takes a while...not optimized for GPU
-
-        # n_weight_map: (batch_size, label_size, vec_dim)
-        seq_len, batch_size, _ = output.size()
-        assignment_dist = torch.zeros(batch_size, seq_len, self.nclasses)
-
-        sent_vec, indices = torch.max(output, 0)
-        n_weight_map = self.get_weight_map(sent_vec)
-
-        # we record how many times each dimension voted to DIFFERENT candidate/label
-        # records = torch.zeros(batch_size, seq_len)
-        # records how often we actually reassign when the label changed
-        # reassign_records = torch.zeros(batch_size, seq_len)
-        # votes distribution: indices (how many votes per word has)
-        # votes_dist = torch.zeros(batch_size, seq_len)
-
-        # not sure if there's Torch tensor-op that will solve this
-        for b in range(batch_size):
-            # this is per-example, we record used time_steps
-            time_steps = set()
-            for d in range(self.hidden_size):
-                # get the time_step of each dim
-                time_step = indices.data.cpu()[b, d]
-                # add to votes distributions
-                # votes_dist[b, time_step] += 1
-                if time_step not in time_steps:
-                    assignment_dist[b, time_step, :] = n_weight_map.data.cpu()[b, :, d]
-                    time_steps.add(time_step)
-                else:
-                    # this part is supposed to compare new assignment to prev one
-                    # and find the most influential:
-                    # compare the max proportion of the two assignments, and go with
-                    # whichever one is larger...
-                    old_assignment = assignment_dist[b, time_step, :]
-                    new_assignment = n_weight_map.data.cpu()[b, :, d]
-
-                    # assignment is a vector (1-dim)
-                    old_max_contribution, old_label_index = torch.max(old_assignment, 0)
-                    new_max_contribution, new_label_index = torch.max(new_assignment, 0)
-
-                    if (new_max_contribution > old_max_contribution).numpy():
-                        assignment_dist[b, time_step, :] = n_weight_map.data.cpu()[b, :, d]
-
-                        # we investigate if this time step voted for a different candidate
-                        # if (old_label_index != new_label_index).numpy():
-                        #     records[b, time_step] += 1  # because it voted for a different label
-                        #     if (new_max_contribution > old_max_contribution).numpy():
-                        #         reassign_records[b, time_step] += 1
-
-        return assignment_dist  # , records, reassign_records, votes_dist
-
 
 def preds_to_sparse_matrix(indices, batch_size, label_size):
     # this is for preds
@@ -522,14 +375,6 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
             # tau = l ** 2 * (1 - model.p) / (2 * N * model.weight_decay)
             # predictive_variance += tau ** -1
 
-        if save_viz:
-            # need to turn on model.eval() and turn it back off
-            model.eval()
-            # (batch_size, time_step, label_dist)
-            label_assignment_tensor = model.get_visualization_tensor_max_assignment(output_vecs)
-            all_text_vis.extend(label_assignment_tensor.numpy().tolist())
-            model.train()
-
             # if save_pred:
             # credit_assign = model.get_tensor_credit_assignment(output_vecs)
             # global_map, local_map = model.get_tensor_label_attr(output_vecs)
@@ -617,21 +462,15 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
                 writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2]})
 
         with open(pjoin(args.run_dir, 'label_vis_map.json'), 'wb') as f:
+            # used to be : all_condensed_preds, all_condensed_ys, all_scores, all_print_y_labels
             json.dump([all_condensed_preds, all_condensed_ys, all_scores, all_uncertainty, all_print_y_labels, all_orig_texts], f)
 
         with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
             json.dump(labels, f)
 
+        torch.save(model, pjoin(args.run_dir, 'model.pickle'))
+
     if save_viz:
-        import csv
-        with open(pjoin(args.run_dir, 'confusion_test.csv'), 'wb') as csvfile:
-            fieldnames = ['preds', 'labels', 'text']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
-
-            for pair in zip(all_condensed_preds, all_condensed_ys, all_orig_texts):
-                writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2]})
-
         with open(pjoin(args.run_dir, 'label_vis_map.json'), 'wb') as f:
             json.dump([all_condensed_preds, all_condensed_ys, all_orig_texts, all_text_vis], f)
 
@@ -712,7 +551,7 @@ def train_module(model, optimizer,
                 loss.backward()
             elif args.softmax_hier:
                 # compute loss for the higher level
-                #   # (Batch, n_classes)
+                # (Batch, n_classes)
 
                 # this is now logit, not
                 if args.softmax_hier_prod_prob:
@@ -880,7 +719,7 @@ if __name__ == '__main__':
             fields=[('Text', TEXT), ('Description', LABEL)])
 
     # actually, this is the first point of improvement: load in clinical embedding instead!!!
-    TEXT.build_vocab(train, vectors="glove.6B.100d")
+    TEXT.build_vocab(train, vectors="glove.6B.{}d".format(args.emb_dim))
 
     # do repeat=False
     train_iter, val_iter, test_iter = data.Iterator.splits(
@@ -894,8 +733,11 @@ if __name__ == '__main__':
     if args.rand_unk:
         init_emb(vocab, init="randn")
 
-    model = Model(vocab, nclasses=len(labels), emb_dim=args.emb_dim,
-                  hidden_size=args.d, depth=args.depth)
+    if args.load_model:
+        model = torch.load(pjoin(args.run_dir, 'model.pickle'))
+    else:
+        model = Model(vocab, nclasses=len(labels), emb_dim=args.emb_dim,
+                      hidden_size=args.d, depth=args.depth)
 
     if torch.cuda.is_available():
         model.cuda(args.gpu)
@@ -904,16 +746,14 @@ if __name__ == '__main__':
         sum(x.numel() for x in model.parameters() if x.requires_grad)
     ))
 
-    need_grad = lambda x: x.requires_grad
-    optimizer = optim.Adam(
-        filter(need_grad, model.parameters()),
-        lr=0.001, weight_decay=args.l2_str)
-    # optimizer = optim.SGD(
-    #     filter(need_grad, model.parameters()),
-    #     lr=0.01)
+    if not args.load_model:
+        need_grad = lambda x: x.requires_grad
+        optimizer = optim.Adam(
+            filter(need_grad, model.parameters()),
+            lr=0.001, weight_decay=args.l2_str)
 
-    train_module(model, optimizer, train_iter, val_iter,
-                 max_epoch=args.max_epoch)
+        train_module(model, optimizer, train_iter, val_iter,
+                     max_epoch=args.max_epoch)
 
     test_accu = eval_model(model, test_iter, save_pred=True, save_viz=False)
     logger.info("final test accu: {}".format(test_accu))
