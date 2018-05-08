@@ -56,7 +56,9 @@ def get_most_freq_label(dic):
     return most_f_l
 
 
-def collapse_label(list_labels):
+# this is the correct collapse_label that
+# produces "Other Clinical Finding" (that is not disease)
+def collapse_label_x(list_labels):
     # collapse and filter at the same time
     flat_list_labels = [item for items in list_labels for item in items if len(item) > 0]
     new_label_set = set()
@@ -78,6 +80,25 @@ def collapse_label(list_labels):
         # if clinical finding tag is present, no disease is, we add it
         if clinical_finding_tag and not found_diseas:
             new_label_set.add(clinical_finding)
+
+    return list(new_label_set)
+
+# this is the one similar to Ashley's generation of CSU dataset
+# where disease also counts into clinical finding
+def collapse_label(list_labels):
+    if clinical_finding not in snomed_label_set:
+        snomed_label_set.add(clinical_finding)
+
+    # collapse and filter at the same time
+    flat_list_labels = [item for items in list_labels for item in items if len(item) > 0]
+    new_label_set = set()
+    for l in flat_list_labels:
+
+        for super_l in supertype_id_test(int(float(l))):
+            # this is strictly searching for disease
+            super_l = str(super_l)
+            if super_l in snomed_label_set:
+                new_label_set.add(super_l)  # set, so ok for repeating add
 
     return list(new_label_set)
 

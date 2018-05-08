@@ -50,8 +50,6 @@ argparser.add_argument("--max_epoch", type=int, default=5)
 argparser.add_argument("--d", type=int, default=512)
 argparser.add_argument("--dropout", type=float, default=0.2,
                        help="dropout of word embeddings and softmax output")
-argparser.add_argument("--rnn_dropout", type=float, default=0.2,
-                       help="dropout of RNN layers")
 argparser.add_argument("--depth", type=int, default=1)
 argparser.add_argument("--lr", type=float, default=1.0)
 argparser.add_argument("--clip_grad", type=float, default=5)
@@ -64,6 +62,10 @@ argparser.add_argument("--emb_update", action="store_true", help="update embeddi
 argparser.add_argument("--mc_dropout", action="store_true", help="use variational dropout at inference time")
 argparser.add_argument("--dice_loss", action="store_true", help="use Dice loss to solve class imbalance, currently only implemented without extra penalty")
 argparser.add_argument("--bidir", action="store_true", help="use bidirectional ")
+
+argparser.add_argument("--lrj", action="store_true", help="learn to reject")
+argparser.add_argument("--gamma", type=float, default=5., help="default rejection cost")
+
 argparser.add_argument("--l2_penalty_softmax", type=float, default=0., help="add L2 penalty on softmax weight matrices")
 argparser.add_argument("--l2_str", type=float, default=0, help="a scalar that reduces strength")  # 1e-3
 
@@ -434,17 +436,8 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
             all_condensed_preds.extend(condensed_preds)
             all_condensed_ys.extend(condensed_ys)
 
-    multiclass_f1_msg = 'Multiclass F1 - '
-
     preds = np.vstack(all_preds)
     ys = np.vstack(all_y_labels)
-
-    # both should be giant sparse label matrices
-    f1_by_label = metrics.f1_score(ys, preds, average=None)
-    for i, f1_value in enumerate(f1_by_label.tolist()):
-        multiclass_f1_msg += labels[i] + ": " + str(f1_value) + " "
-
-    logging.info(multiclass_f1_msg)
 
     # both are only true if it's for test, this saves sysout
     logging.info("\n" + metrics.classification_report(ys, preds))
@@ -468,6 +461,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
         with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
             json.dump(labels, f)
 
+        # save model
         torch.save(model, pjoin(args.run_dir, 'model.pickle'))
 
     if save_viz:
@@ -478,6 +472,145 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
             json.dump(labels, f)
 
     model.train()
+    return correct / cnt
+
+def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False):
+    # when test_final is true, we save predictions
+    if not args.mc_dropout:
+        model.eval()
+
+    criterion = BCEWithLogitsLoss()
+    correct = 0.0
+    cnt = 0
+    total_loss = 0.0
+
+    all_scores = []  # probability to measure uncertainty
+    all_preds = []
+    all_y_labels = []
+    all_print_y_labels = []
+    all_orig_texts = []
+    all_text_vis = []
+
+    all_condensed_preds = []
+    all_condensed_ys = []
+
+    all_meta_preds = []
+    all_meta_y_labels = []
+
+    all_uncertainty = []
+
+    # all_credit_assign = []
+    # all_la_global = []
+    # all_la_local = []
+
+    logger.info("Evaluating on Adobe dataset")
+
+    iter = 0
+    for data in adobe_iter:
+        (x, x_lengths), y = data.Text, data.Description
+        iter += 1
+
+        if iter % 5 == 0 and save_pred:
+            logger.info("at iteration {}".format(iter))
+
+        if not args.mc_dropout:
+            output_vecs = model.get_vectors(x, x_lengths)
+            output = model.get_logits(output_vecs)  # this is logits, not sent to sigmoid yet!
+        else:
+            # [(batch_size, class_scores) * 10]
+            outputs = []
+            # run 10 times per batch to get mc estimation
+            for _ in xrange(10):
+                output_vecs = model.get_vectors(x, x_lengths)
+                output = model.get_logits(output_vecs)
+                outputs += [output.data.cpu().numpy()]
+                # probs += [output_to_prob(output).data.cpu().numpy()]  # remember this is batched!!!!
+
+            output_mean = np.mean(outputs, axis=0)
+            # predictive_mean = np.mean(probs, axis=0)
+            # predictive_variance = np.var(probs, axis=0)
+            predictive_variance = np.var(outputs, axis=0)
+
+            # Note that we are NOT computing tau; this value is rather small
+            # tau = l ** 2 * (1 - model.p) / (2 * N * model.weight_decay)
+            # predictive_variance += tau ** -1
+
+            # if save_pred:
+            # credit_assign = model.get_tensor_credit_assignment(output_vecs)
+            # global_map, local_map = model.get_tensor_label_attr(output_vecs)
+
+            # all_credit_assign.extend(credit_assign.numpy().tolist())
+            # all_la_global.extend(global_map.numpy().tolist())
+            # all_la_local.extend(local_map.numpy().tolist())
+
+        batch_size = x.size(1)
+
+        loss = criterion(output, y)
+        total_loss += loss.data[0] * x.size(1)
+
+        if not args.mc_dropout:
+            scores = output_to_prob(output).data.cpu().numpy()
+            preds = output_to_preds(output)
+        else:
+            pt_output_mean = torch.from_numpy(output_mean)
+            scores = output_to_prob(pt_output_mean).cpu().numpy()
+            preds = output_to_preds(pt_output_mean)
+
+        preds_indices = sparse_one_hot_mat_to_indices(preds)
+
+        if not args.mc_dropout:
+            sparse_preds = preds_to_sparse_matrix(preds_indices.data.cpu().numpy(), batch_size, model.nclasses)
+        else:
+            sparse_preds = preds_to_sparse_matrix(preds_indices.numpy(), batch_size, model.nclasses)
+
+        all_scores.extend(scores.tolist())
+        all_print_y_labels.extend(y.data.cpu().numpy().tolist())
+        all_preds.append(sparse_preds)
+        all_y_labels.append(y.data.cpu().numpy())
+
+        if args.mc_dropout:
+            all_uncertainty.extend(predictive_variance.tolist())
+
+        # Generate meta-y labels and meta-level predictions
+        # meta-y label is:
+        # meta_y = generate_meta_y(y_indices.data.cpu().numpy().tolist(), meta_label_size, batch_size)
+        # meta-level prediction needs additional code
+
+        # TODO: this is possibly incorrect?...not that we are using accuracy...
+        correct += metrics.accuracy_score(y.data.cpu().numpy(), sparse_preds)
+        cnt += 1
+
+        orig_text = TEXT.reverse(x.data)
+        all_orig_texts.extend(orig_text)
+
+        if save_pred:
+            y_indices = sparse_one_hot_mat_to_indices(y)
+            if not args.mc_dropout:
+                condensed_preds = condense_preds(preds_indices.data.cpu().numpy().tolist(), batch_size)
+            else:
+                condensed_preds = condense_preds(preds_indices.numpy().tolist(), batch_size)
+            condensed_ys = condense_preds(y_indices.data.cpu().numpy().tolist(), batch_size)
+
+            all_condensed_preds.extend(condensed_preds)
+            all_condensed_ys.extend(condensed_ys)
+
+    preds = np.vstack(all_preds)
+    ys = np.vstack(all_y_labels)
+
+    # both are only true if it's for test, this saves sysout
+    logging.info("\n" + metrics.classification_report(ys, preds))
+
+    if save_pred:
+        # So the format for each entry is: y = [], pred = [], for all labels
+        # we also need
+        with open(pjoin(args.run_dir, 'adobe_label_vis_map.json'), 'wb') as f:
+            # used to be : all_condensed_preds, all_condensed_ys, all_scores, all_print_y_labels
+            json.dump([all_condensed_preds, all_condensed_ys, all_scores, all_uncertainty, all_print_y_labels, all_orig_texts], f)
+
+    if save_viz:
+        with open(pjoin(args.run_dir, 'adobe_label_vis_map.json'), 'wb') as f:
+            json.dump([all_condensed_preds, all_condensed_ys, all_orig_texts, all_text_vis], f)
+
     return correct / cnt
 
 
@@ -718,6 +851,10 @@ if __name__ == '__main__':
             test='snomed_adjusted_multi_label_no_des_test.tsv', format='tsv',
             fields=[('Text', TEXT), ('Description', LABEL)])
 
+    # load in adobe
+    adobe_test = data.TabularDataset(path='../../data/csu/', format='tsv',
+                                     fields=[('Text', TEXT), ('Description', LABEL)])
+
     # actually, this is the first point of improvement: load in clinical embedding instead!!!
     TEXT.build_vocab(train, vectors="glove.6B.{}d".format(args.emb_dim))
 
@@ -757,3 +894,6 @@ if __name__ == '__main__':
 
     test_accu = eval_model(model, test_iter, save_pred=True, save_viz=False)
     logger.info("final test accu: {}".format(test_accu))
+
+    adobe_accu = eval_adobe(model, adobe_test, save_pred=True, save_viz=False)
+    logger.info("final adobe accu: {}".format(adobe_accu))
