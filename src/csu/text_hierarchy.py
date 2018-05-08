@@ -852,7 +852,8 @@ if __name__ == '__main__':
             fields=[('Text', TEXT), ('Description', LABEL)])
 
     # load in adobe
-    adobe_test = data.TabularDataset(path='../../data/csu/', format='tsv',
+    adobe_test = data.TabularDataset(path='../../data/csu/adobe_snomed_multi_label_no_des_test.tsv',
+                                     format='tsv',
                                      fields=[('Text', TEXT), ('Description', LABEL)])
 
     # actually, this is the first point of improvement: load in clinical embedding instead!!!
@@ -864,6 +865,9 @@ if __name__ == '__main__':
         batch_sizes=(32, 256, 256), device=args.gpu,
         sort_within_batch=True, repeat=False)  # stop infinite runs
     # if not labeling sort=False, then you are sorting through valid and test
+
+    adobe_test_iter = data.Iterator(adobe_test, 256, sort_key=lambda x: len(x.Text),
+                                    device=args.gpu, train=False, repeat=False, sort_within_batch=True)
 
     vocab = TEXT.vocab
 
@@ -895,5 +899,5 @@ if __name__ == '__main__':
     test_accu = eval_model(model, test_iter, save_pred=True, save_viz=False)
     logger.info("final test accu: {}".format(test_accu))
 
-    adobe_accu = eval_adobe(model, adobe_test, save_pred=True, save_viz=False)
+    adobe_accu = eval_adobe(model, adobe_test_iter, save_pred=True, save_viz=False)
     logger.info("final adobe accu: {}".format(adobe_accu))
