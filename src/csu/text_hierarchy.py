@@ -38,9 +38,6 @@ import json
 
 from collections import defaultdict
 
-reload(sys)
-sys.setdefaultencoding('utf-8')
-
 argparser = argparse.ArgumentParser(sys.argv[0], conflict_handler='resolve')
 argparser.add_argument("--dataset", type=str, default='multi_top_snomed_adjusted_no_des',
                        help="multi_top_snomed_no_des|multi_top_snomed_adjusted_no_des, merged is the better one")
@@ -165,7 +162,7 @@ class Model(nn.Module):
             depth,
             dropout=args.dropout,
             bidirectional=args.bidir)  # ha...not even bidirectional
-        d_out = hidden_size
+        d_out = hidden_size if not args.bidir else hidden_size * 2
         self.out = nn.Linear(d_out, nclasses)  # include bias, to prevent bias assignment
         self.embed = nn.Embedding(len(vocab), emb_dim)
         self.embed.weight.data.copy_(vocab.vectors)
@@ -445,14 +442,14 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     if save_pred:
         # So the format for each entry is: y = [], pred = [], for all labels
         # we also need
-        import csv
-        with open(pjoin(args.run_dir, 'confusion_test.csv'), 'wb') as csvfile:
-            fieldnames = ['preds', 'labels', 'text']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
-
-            for pair in zip(all_condensed_preds, all_condensed_ys, all_orig_texts):
-                writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2]})
+        # import csv
+        # with open(pjoin(args.run_dir, 'confusion_test.csv'), 'wb') as csvfile:
+        #     fieldnames = ['preds', 'labels', 'text']
+        #     writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        #     writer.writeheader()
+        #
+        #     for pair in zip(all_condensed_preds, all_condensed_ys, all_orig_texts):
+        #         writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2]})
 
         with open(pjoin(args.run_dir, 'label_vis_map.json'), 'wb') as f:
             # used to be : all_condensed_preds, all_condensed_ys, all_scores, all_print_y_labels
