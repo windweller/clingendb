@@ -838,6 +838,11 @@ if __name__ == '__main__':
 
     LABEL = MultiLabelField(sequential=True, use_vocab=False, label_size=label_size, tensor_type=torch.FloatTensor)
 
+    # load in adobe
+    adobe_test = data.TabularDataset(path='../../data/csu/adobe_snomed_multi_label_no_des_test.tsv',
+                                     format='tsv',
+                                     fields=[('Text', TEXT), ('Description', LABEL)])
+
     if args.dataset == 'multi_top_snomed_no_des':
         train, val, test = data.TabularDataset.splits(
             path='../../data/csu/', train='snomed_multi_label_no_des_train.tsv',
@@ -850,11 +855,6 @@ if __name__ == '__main__':
             validation='snomed_adjusted_multi_label_no_des_valid.tsv',
             test='snomed_adjusted_multi_label_no_des_test.tsv', format='tsv',
             fields=[('Text', TEXT), ('Description', LABEL)])
-
-    # load in adobe
-    adobe_test = data.TabularDataset(path='../../data/csu/adobe_snomed_multi_label_no_des_test.tsv',
-                                     format='tsv',
-                                     fields=[('Text', TEXT), ('Description', LABEL)])
 
     # actually, this is the first point of improvement: load in clinical embedding instead!!!
     TEXT.build_vocab(train, vectors="glove.6B.{}d".format(args.emb_dim))
