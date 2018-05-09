@@ -299,7 +299,7 @@ class Model(nn.Module):
         return self.gamma * sum(pieces)
 
     # this is the main function used
-    def forward(self, input):
+    def forward(self, input: List[List[str]]):
         output_vecs, lengths = self.get_vectors(input)
         return self.get_logits(output_vecs, lengths)
 
@@ -333,6 +333,8 @@ class Model(nn.Module):
         sent_reps, sent_len = self.embed.batch_to_embeddings(input)
         # (batch_size, 3=layer_num, Time, 1024)
         # TODO: we mix three layers now!
+
+        sent_reps = Variable(sent_reps)
 
         # (batch_size, Time, 1024)
         sent = self.scalar_mix(torch.split(sent_reps, split_size=3, dim=1))
@@ -660,9 +662,9 @@ def eval_adobe(model, valid_path, save_pred=False, save_viz=False):
 
         # embed with ELMO
         # this is not sorted
-        sents, sent_lengths = elmo.batch_to_embeddings(x)
+        # sents, sent_lengths = elmo.batch_to_embeddings(x)
 
-        output = model(sents, sent_lengths)
+        output = model(x)
 
         if iter % 5 == 0 and save_pred:
             logger.info("at iteration {}".format(iter))
@@ -749,9 +751,9 @@ def train_module(model, optimizer,
 
             # embed with ELMO
             # this is not sorted
-            sents, sent_lengths = elmo.batch_to_embeddings(x)
+            # sents, sent_lengths = elmo.batch_to_embeddings(x)
 
-            output = model(sents, sent_lengths)  # this is just logit (before calling sigmoid)
+            output = model(x)  # this is just logit (before calling sigmoid)
 
             if args.prototype:
                 loss = criterion(output, y)
