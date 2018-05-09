@@ -334,11 +334,23 @@ class Model(nn.Module):
             masks[l:, i] = 0.
         return torch.from_numpy(masks)
 
-    def get_vectors(self, input: List[List[str]]):
+    def truncate_input(self, input):
+        # truncate anything that's longer than 1000
+        truncated_input = []
+        for inp in input:
+            if len(inp) > 1000:
+                truncated_input.append(inp[:1000])
+            else:
+                truncated_input.append(inp)
+        return truncated_input
+
+    def get_vectors(self, orig_input: List[List[str]]):
         # so sent_reps is actually a variable.
         # we could update ELMo if we want to :)
         # but currently it's not updated by Adam
         # so let's detach
+
+        input = self.truncate_input(orig_input)
 
         sent_reps, sent_mask = self.embed.batch_to_embeddings(input)
         # (batch_size, 3=layer_num, Time, 1024)
