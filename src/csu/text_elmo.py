@@ -273,6 +273,8 @@ class Model(nn.Module):
                                                    for _ in range(3)])
         self.gamma = nn.Parameter(torch.FloatTensor([1.0]))
 
+        self.mixture_size = 3
+
         if args.multi_attn:
             # prepare keys
             logger.info("adding attention matrix")
