@@ -543,7 +543,7 @@ def eval_model(model, valid_path, save_pred=False, save_viz=False):
 
     iter = 0
 
-    valid_iter = get_batch_iter(valid_path, 256)
+    valid_iter = get_batch_iter(valid_path, 32)
 
     for data in valid_iter:
 
@@ -647,7 +647,7 @@ def eval_adobe(model, valid_path, save_pred=False, save_viz=False):
 
     iter = 0
 
-    valid_iter = get_batch_iter(valid_path, 256)
+    valid_iter = get_batch_iter(valid_path, 32)
 
     for data in valid_iter:
 
@@ -736,7 +736,7 @@ def train_module(model, optimizer,
 
     for n in range(max_epoch):
         iter = 0
-        train_iter = get_batch_iter(train_path, 32)
+        train_iter = get_batch_iter(train_path, args.batch_size)
 
         for data in train_iter:
             iter += 1
