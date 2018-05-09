@@ -348,7 +348,7 @@ class Model(nn.Module):
         # (batch_size, Time, 1024)
         sent = self.scalar_mix([sent_reps[:,0], sent_reps[:,1], sent_reps[:,2]])
 
-        sent_len = [len(x) for x in input]  # [32, 15, 22, 10, ...] etc.
+        sent_len = np.array([len(x) for x in input])  # [32, 15, 22, 10, ...] etc.
 
         # Sort by length (keep idx)
         sent_len, idx_sort = np.sort(sent_len)[::-1], np.argsort(-sent_len)
