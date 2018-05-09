@@ -109,6 +109,8 @@ y_data = []
 
 tokenizer = nltk.tokenize
 
+# TODO: need to sentence tokenize first...then send each sentence into ELMo
+# TODO: then concatenate those embeddings together...? But masking would be crazy...
 def get_batch_iter(file, batch_size: int):
     global x_data
     global y_data
@@ -118,7 +120,7 @@ def get_batch_iter(file, batch_size: int):
             for line in f:
                 x, y = line.split('\t')
                 x_words = tokenizer.word_tokenize(x)
-                x_data.append(" ".join(x_words))
+                x_data.append(x_words)
                 y_data.append(y.strip().split())
         logger.info("SpaCy preprocessing has finished!")
 
