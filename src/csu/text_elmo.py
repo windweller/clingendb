@@ -37,6 +37,7 @@ argparser.add_argument("--dataset", type=str, default='snomed_refined_multi_labe
 argparser.add_argument("--batch_size", "--batch", type=int, default=32)
 argparser.add_argument("--emb_dim", type=int, default=100)
 argparser.add_argument("--max_epoch", type=int, default=5)
+argparser.add_argument("--max_lengths", type=int, default=1000)
 argparser.add_argument("--d", type=int, default=512)
 argparser.add_argument("--dropout", type=float, default=0.3,
                        help="dropout of word embeddings and softmax output")
@@ -338,8 +339,8 @@ class Model(nn.Module):
         # truncate anything that's longer than 1000
         truncated_input = []
         for inp in input:
-            if len(inp) > 1000:
-                truncated_input.append(inp[:1000])
+            if len(inp) > args.max_lengths:
+                truncated_input.append(inp[:args.max_lengths])
             else:
                 truncated_input.append(inp)
         return truncated_input
