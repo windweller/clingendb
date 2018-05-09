@@ -29,7 +29,7 @@ from torch.nn import Module
 
 from allennlp.data.tokenizers.word_tokenizer import SpacyWordSplitter
 from allennlp.commands.elmo import ElmoEmbedder
-from typing import Generator, List, Tuple, Any
+from typing import Generator, List, Tuple
 
 argparser = argparse.ArgumentParser(sys.argv[0], conflict_handler='resolve')
 argparser.add_argument("--dataset", type=str, default='snomed_refined_multi_label_no_des',
@@ -46,8 +46,6 @@ argparser.add_argument("--clip_grad", type=float, default=5)
 argparser.add_argument("--run_dir", type=str, default='./exp')
 argparser.add_argument("--seed", type=int, default=123)
 argparser.add_argument("--gpu", type=int, default=-1)
-argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
-argparser.add_argument("--emb_update", action="store_true", help="update embedding")
 argparser.add_argument("--multi_attn", action="store_true", help="create task-specific representations")
 argparser.add_argument("--skim", action="store_true", help="a skimming model")
 argparser.add_argument("--skim_interval", type=int, default=5, help="how many words to skim and group together")
@@ -108,7 +106,7 @@ logger.info(args)
 tokenizer = SpacyWordSplitter()
 
 
-def get_batch_iter(file, batch_size: int) -> Generator[Tuple[List[List[str]], List[List[int]]]]:
+def get_batch_iter(file, batch_size: int):
     x_data = []
     y_data = []
     with open(file, 'r') as f:
