@@ -60,9 +60,6 @@ argparser.add_argument("--mc_dropout", action="store_true", help="use variationa
 argparser.add_argument("--dice_loss", action="store_true", help="use Dice loss to solve class imbalance, currently only implemented without extra penalty")
 argparser.add_argument("--bidir", action="store_true", help="use bidirectional ")
 
-argparser.add_argument("--lrj", action="store_true", help="learn to reject")
-argparser.add_argument("--gamma", type=float, default=5., help="default rejection cost")
-
 argparser.add_argument("--l2_penalty_softmax", type=float, default=0., help="add L2 penalty on softmax weight matrices")
 argparser.add_argument("--l2_str", type=float, default=0, help="a scalar that reduces strength")  # 1e-3
 
@@ -352,8 +349,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
             logger.info("at iteration {}".format(iter))
 
         if not args.mc_dropout:
-            output_vecs = model.get_vectors(x, x_lengths)
-            output = model.get_logits(output_vecs)  # this is logits, not sent to sigmoid yet!
+            output = model(x, x_lengths)  # this is logits, not sent to sigmoid yet!
         else:
             # [(batch_size, class_scores) * 10]
             # probs = []
@@ -442,14 +438,6 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     if save_pred:
         # So the format for each entry is: y = [], pred = [], for all labels
         # we also need
-        # import csv
-        # with open(pjoin(args.run_dir, 'confusion_test.csv'), 'wb') as csvfile:
-        #     fieldnames = ['preds', 'labels', 'text']
-        #     writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        #     writer.writeheader()
-        #
-        #     for pair in zip(all_condensed_preds, all_condensed_ys, all_orig_texts):
-        #         writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2]})
 
         with open(pjoin(args.run_dir, 'label_vis_map.json'), 'wb') as f:
             # used to be : all_condensed_preds, all_condensed_ys, all_scores, all_print_y_labels
@@ -859,11 +847,11 @@ if __name__ == '__main__':
     # do repeat=False
     train_iter, val_iter, test_iter = data.Iterator.splits(
         (train, val, test), sort_key=lambda x: len(x.Text),  # no global sort, but within-batch-sort
-        batch_sizes=(32, 256, 256), device=args.gpu,
+        batch_sizes=(32, 128, 128), device=args.gpu,
         sort_within_batch=True, repeat=False)  # stop infinite runs
     # if not labeling sort=False, then you are sorting through valid and test
 
-    adobe_test_iter = data.Iterator(adobe_test, 256, sort_key=lambda x: len(x.Text),
+    adobe_test_iter = data.Iterator(adobe_test, 128, sort_key=lambda x: len(x.Text),
                                     device=args.gpu, train=False, repeat=False, sort_within_batch=True)
 
     vocab = TEXT.vocab

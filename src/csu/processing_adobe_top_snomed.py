@@ -12,6 +12,9 @@ import copy
 import csv
 from collections import defaultdict
 
+reload(sys)
+sys.setdefaultencoding('utf-8')
+
 vet_tc = pd.read_csv("../../data/csu/Files_for_parsing/snomed_vet_tc.csv", sep='\t')
 
 
@@ -32,7 +35,7 @@ def write_to_tsv(data, file_name, label_list):
     with open(file_name, 'wb') as f:
         for line in data:
             mapped_labels = [str(label_list.index(l)) for l in line[1].split()]
-            f.write(line[0] + '\t' + " ".join(mapped_labels) + '\n')
+            f.write(line[0].decode('utf-8', 'ignore').encode('utf-8') + '\t' + " ".join(mapped_labels) + '\n')
 
 
 # the disease level labels we are trying to catch
