@@ -269,6 +269,8 @@ class Model(nn.Module):
             dropout=0.5,  # dropout for ELMo, recommended
             bidirectional=False)  # ha...not even bidirectional
 
+        self.is_cuda = torch.cuda.is_available()
+
         self.scalar_parameters = nn.ParameterList([nn.Parameter(torch.FloatTensor([0.0]))
                                                    for _ in range(3)])
         self.gamma = nn.Parameter(torch.FloatTensor([1.0]))
