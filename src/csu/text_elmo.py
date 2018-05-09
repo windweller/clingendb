@@ -351,7 +351,7 @@ class Model(nn.Module):
         sent_len, idx_sort = np.sort(sent_len)[::-1], np.argsort(-sent_len)
         idx_unsort = np.argsort(idx_sort)
 
-        idx_sort = torch.from_numpy(idx_sort).cuda() if self.is_cuda() \
+        idx_sort = torch.from_numpy(idx_sort).cuda() if self.is_cuda \
             else torch.from_numpy(idx_sort)
         sent = sent.index_select(1, Variable(idx_sort))
 
@@ -361,7 +361,7 @@ class Model(nn.Module):
         sent_output = nn.utils.rnn.pad_packed_sequence(sent_output)[0]
 
         # Un-sort by length
-        idx_unsort = torch.from_numpy(idx_unsort).cuda() if self.is_cuda() \
+        idx_unsort = torch.from_numpy(idx_unsort).cuda() if self.is_cuda \
             else torch.from_numpy(idx_unsort)
         sent_output = sent_output.index_select(1, Variable(idx_unsort))
 
