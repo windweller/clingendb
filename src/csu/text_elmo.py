@@ -262,7 +262,7 @@ class Model(nn.Module):
         self.emb_dim = 1024
         self.embed = elmo
 
-        self.encoder = nn.LSTM(
+        self.enc_lstm = nn.LSTM(
             self.emb_dim,
             hidden_size,
             depth,
@@ -300,7 +300,7 @@ class Model(nn.Module):
         pieces = []
         for weight, tensor in zip(normed_weights, tensors):
             pieces.append(weight * tensor)
-        return self.gamma * sum(pieces)
+        return self.gamma * torch.sum(pieces)
 
     # this is the main function used
     def forward(self, input: List[List[str]]):
@@ -347,6 +347,9 @@ class Model(nn.Module):
 
         # (batch_size, Time, 1024)
         sent = self.scalar_mix([sent_reps[:,0], sent_reps[:,1], sent_reps[:,2]])
+
+        # (Time, batch_size, 1024)
+        sent = torch.transpose(sent, 0, 1)
 
         sent_len = np.array([len(x) for x in input])  # [32, 15, 22, 10, ...] etc.
 
