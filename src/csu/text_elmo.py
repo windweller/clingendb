@@ -237,7 +237,7 @@ def y_to_tensor(y: List[List[int]]) -> torch.FloatTensor:
     y_tensor = torch.zeros([len(y), label_size])
     for i in range(len(y)):
         for l_b in y[i]:
-            y_tensor[i, l_b] = 1.
+            y_tensor[i, int(l_b)] = 1.
     return y_tensor
 
 class Model(nn.Module):
@@ -717,7 +717,6 @@ def train_module(model, optimizer,
                  train_path, valid_path, max_epoch):
     model.train()
     criterion = BCEWithLogitsLoss(reduce=False)
-    meta_criterion = nn.BCELoss()
 
     exp_cost = None
     end_of_epoch = True  # False  # set true because we want immediate feedback...
