@@ -341,6 +341,10 @@ class Model(nn.Module):
 
         sent_reps, sent_len = self.embed.batch_to_embeddings(input)
         # (batch_size, 3=layer_num, Time, 1024)
+        sent_len = sent_len.data.cpu().numpy()
+        np_sent_len = sent_len
+
+        # sent_len: (batch_size, num_steps)
 
         sent_reps = sent_reps.detach()  # so it's not backpropagating to ELMo
 
