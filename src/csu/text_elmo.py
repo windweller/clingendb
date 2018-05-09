@@ -45,7 +45,8 @@ argparser.add_argument("--lr", type=float, default=1.0)
 argparser.add_argument("--clip_grad", type=float, default=5)
 argparser.add_argument("--run_dir", type=str, default='./exp')
 argparser.add_argument("--seed", type=int, default=123)
-argparser.add_argument("--gpu", type=int, default=-1)
+argparser.add_argument("--gpu1", type=int, default=0, help='this one runs ELMo')
+argparser.add_argument("--gpu2", type=int, default=1, help='this one trains model')
 argparser.add_argument("--multi_attn", action="store_true", help="create task-specific representations")
 argparser.add_argument("--skim", action="store_true", help="a skimming model")
 argparser.add_argument("--skim_interval", type=int, default=5, help="how many words to skim and group together")
@@ -672,7 +673,7 @@ def eval_adobe(model, valid_path, save_pred=False, save_viz=False):
         iter += 1
 
         x, y_list = data
-        y = y_to_tensor(y_list)
+        y = Variable(y_to_tensor(y_list)).cuda()
 
         # embed with ELMO
         # this is not sorted
@@ -761,7 +762,7 @@ def train_module(model, optimizer,
 
             model.zero_grad()
             x, y_list = data
-            y = Variable(y_to_tensor(y_list)).cuda(args.gpu)  # make y a variable, also move to cuda!
+            y = Variable(y_to_tensor(y_list)).cuda(args.gpu2)  # make y a variable, also move to cuda!
 
             # embed with ELMO
             # this is not sorted
@@ -970,7 +971,7 @@ if __name__ == '__main__':
     # now we'll have to do sorting ourselves
     # ELMO returns things to us in the original order...we use InferSent code to help us sort...
 
-    elmo = ElmoEmbedder(cuda_device=args.gpu)
+    elmo = ElmoEmbedder(cuda_device=args.gpu1)
 
     model = Model(elmo, nclasses=len(labels),
                   hidden_size=args.d, depth=args.depth)
@@ -979,7 +980,7 @@ if __name__ == '__main__':
     logger.info(model)
 
     if torch.cuda.is_available():
-        model.cuda(args.gpu)
+        model.cuda(args.gpu2)
 
     sys.stdout.write("num of parameters: {}\n".format(
         sum(x.numel() for x in model.parameters() if x.requires_grad)
