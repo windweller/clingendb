@@ -586,32 +586,13 @@ def eval_model(model, valid_path, save_pred=False, save_viz=False):
             all_condensed_preds.extend(condensed_preds)
             all_condensed_ys.extend(condensed_ys)
 
-    multiclass_f1_msg = 'Multiclass F1 - '
-
     preds = np.vstack(all_preds)
     ys = np.vstack(all_y_labels)
-
-    # both should be giant sparse label matrices
-    f1_by_label = metrics.f1_score(ys, preds, average=None)
-    for i, f1_value in enumerate(f1_by_label.tolist()):
-        multiclass_f1_msg += labels[i] + ": " + str(f1_value) + " "
-
-    logger.info(multiclass_f1_msg)
 
     # both are only true if it's for test, this saves sysout
     logger.info("\n" + metrics.classification_report(ys, preds))
 
     if save_pred:
-        # So the format for each entry is: y = [], pred = [], for all labels
-        # we also need
-        import csv
-        with open(pjoin(args.run_dir, 'confusion_test.csv'), 'wb') as csvfile:
-            fieldnames = ['preds', 'labels', 'text']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
-
-            for pair in zip(all_condensed_preds, all_condensed_ys, all_orig_texts):
-                writer.writerow({'preds': pair[0], 'labels': pair[1], 'text': pair[2]})
 
         with open(pjoin(args.run_dir, 'label_vis_map.json'), 'wb') as f:
             json.dump([all_condensed_preds, all_condensed_ys, all_scores, all_print_y_labels, all_orig_texts], f)
@@ -634,6 +615,97 @@ def eval_model(model, valid_path, save_pred=False, save_viz=False):
 
         with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
             json.dump(labels, f)
+
+    model.train()
+    return correct / cnt
+
+def eval_adobe(model, valid_path, save_pred=False, save_viz=False):
+    # when test_final is true, we save predictions
+    model.eval()
+    criterion = BCEWithLogitsLoss()
+    correct = 0.0
+    cnt = 0
+    total_loss = 0.0
+
+    all_scores = []  # probability to measure uncertainty
+    all_preds = []
+    all_y_labels = []
+    all_print_y_labels = []
+    all_orig_texts = []
+    all_text_vis = []
+
+    all_condensed_preds = []
+    all_condensed_ys = []
+
+    logger.info("Evaluating on Adobe dataset")
+
+    iter = 0
+
+    valid_iter = get_batch_iter(valid_path, 256)
+
+    for data in valid_iter:
+
+        iter += 1
+
+        x, y_list = data
+        y = y_to_tensor(y_list)
+
+        # embed with ELMO
+        # this is not sorted
+        sents, sent_lengths = elmo.batch_to_embeddings(x)
+
+        output = model(sents, sent_lengths)
+
+        if iter % 5 == 0 and save_pred:
+            logger.info("at iteration {}".format(iter))
+
+        batch_size = len(x)
+
+        loss = criterion(output, y)
+        total_loss += loss.data[0] * batch_size
+
+        scores = output_to_prob(output).data.cpu().numpy()
+        preds = output_to_preds(output)
+        preds_indices = sparse_one_hot_mat_to_indices(preds)
+
+        sparse_preds = preds_to_sparse_matrix(preds_indices.data.cpu().numpy(), batch_size, model.nclasses)
+
+        all_scores.extend(scores.tolist())
+        all_print_y_labels.extend(y.data.cpu().numpy().tolist())
+        all_preds.append(sparse_preds)
+        all_y_labels.append(y.data.cpu().numpy())
+
+        # TODO: this is possibly incorrect?...not that we are using accuracy...
+        correct += metrics.accuracy_score(y.data.cpu().numpy(), sparse_preds)
+        cnt += 1
+
+        orig_text = x
+        all_orig_texts.extend(orig_text)
+
+        if save_pred:
+            y_indices = sparse_one_hot_mat_to_indices(y)
+            condensed_preds = condense_preds(preds_indices.data.cpu().numpy().tolist(), batch_size)
+            condensed_ys = condense_preds(y_indices.data.cpu().numpy().tolist(), batch_size)
+
+            all_condensed_preds.extend(condensed_preds)
+            all_condensed_ys.extend(condensed_ys)
+
+    preds = np.vstack(all_preds)
+    ys = np.vstack(all_y_labels)
+
+    # both are only true if it's for test, this saves sysout
+    logger.info("\n" + metrics.classification_report(ys, preds))
+
+    if save_pred:
+        # So the format for each entry is: y = [], pred = [], for all labels
+        # we also need
+        with open(pjoin(args.run_dir, 'adobe_label_vis_map.json'), 'wb') as f:
+            # used to be : all_condensed_preds, all_condensed_ys, all_scores, all_print_y_labels
+            json.dump([all_condensed_preds, all_condensed_ys, all_scores, all_print_y_labels, all_orig_texts], f)
+
+    if save_viz:
+        with open(pjoin(args.run_dir, 'adobe_label_vis_map.json'), 'wb') as f:
+            json.dump([all_condensed_preds, all_condensed_ys, all_orig_texts, all_text_vis], f)
 
     model.train()
     return correct / cnt
@@ -865,6 +937,8 @@ if __name__ == '__main__':
     else:
         raise Exception("unknown dataset")
 
+    adobe_path = pjoin(root_path, 'adobe_snomed_multi_label_no_des_test.tsv')
+
     # do repeat=False
     # train_iter = get_batch_iter(train_path, 32)
     # val_iter = get_batch_iter(val_path, 256)
@@ -898,3 +972,6 @@ if __name__ == '__main__':
 
     test_accu = eval_model(model, test_path, save_pred=True, save_viz=False)
     logger.info("final test accu: {}".format(test_accu))
+
+    adobe_accu = eval_adobe(model, adobe_path, save_pred=True, save_viz=False)
+    logger.info("final adobe accu: {}".format(adobe_accu))
