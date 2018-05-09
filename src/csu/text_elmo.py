@@ -330,11 +330,15 @@ class Model(nn.Module):
         return torch.from_numpy(masks)
 
     def get_vectors(self, input):
+        # so sent_reps is actually a variable.
+        # we could update ELMo if we want to :)
+        # but currently it's not updated by Adam
+        # so let's detach
+
         sent_reps, sent_len = self.embed.batch_to_embeddings(input)
         # (batch_size, 3=layer_num, Time, 1024)
-        # TODO: we mix three layers now!
 
-        sent_reps = Variable(sent_reps)
+        sent_reps = sent_reps.detach()  # so it's not backpropagating to ELMo
 
         # (batch_size, Time, 1024)
         sent = self.scalar_mix(torch.split(sent_reps, split_size=3, dim=1))
