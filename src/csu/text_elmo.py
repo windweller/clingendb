@@ -761,7 +761,7 @@ def train_module(model, optimizer,
 
             model.zero_grad()
             x, y_list = data
-            y = y_to_tensor(y_list)
+            y = Variable(y_to_tensor(y_list)).cuda(args.gpu)  # make y a variable, also move to cuda!
 
             # embed with ELMO
             # this is not sorted
