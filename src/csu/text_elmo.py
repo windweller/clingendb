@@ -333,23 +333,22 @@ class Model(nn.Module):
             masks[l:, i] = 0.
         return torch.from_numpy(masks)
 
-    def get_vectors(self, input):
+    def get_vectors(self, input: List[List[str]]):
         # so sent_reps is actually a variable.
         # we could update ELMo if we want to :)
         # but currently it's not updated by Adam
         # so let's detach
 
-        sent_reps, sent_len = self.embed.batch_to_embeddings(input)
+        sent_reps, sent_mask = self.embed.batch_to_embeddings(input)
         # (batch_size, 3=layer_num, Time, 1024)
-        sent_len = sent_len.data.cpu().numpy()
-        np_sent_len = sent_len
 
         # sent_len: (batch_size, num_steps)
-
         sent_reps = sent_reps.detach()  # so it's not backpropagating to ELMo
 
         # (batch_size, Time, 1024)
         sent = self.scalar_mix([sent_reps[:,0], sent_reps[:,1], sent_reps[:,2]])
+
+        sent_len = [len(x) for x in input]  # [32, 15, 22, 10, ...] etc.
 
         # Sort by length (keep idx)
         sent_len, idx_sort = np.sort(sent_len)[::-1], np.argsort(-sent_len)
