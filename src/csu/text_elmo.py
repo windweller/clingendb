@@ -344,7 +344,7 @@ class Model(nn.Module):
         # (batch_size, 3=layer_num, Time, 1024)
 
         # sent_len: (batch_size, num_steps)
-        sent_reps = sent_reps.detach()  # so it's not backpropagating to ELMo
+        sent_reps = sent_reps.detach().cuda(args.gpu2)  # so it's not backpropagating to ELMo
 
         # (batch_size, Time, 1024)
         sent = self.scalar_mix([sent_reps[:,0], sent_reps[:,1], sent_reps[:,2]])
@@ -358,7 +358,7 @@ class Model(nn.Module):
         sent_len, idx_sort = np.sort(sent_len)[::-1], np.argsort(-sent_len)
         idx_unsort = np.argsort(idx_sort)
 
-        idx_sort = torch.from_numpy(idx_sort).cuda() if self.is_cuda \
+        idx_sort = torch.from_numpy(idx_sort).cuda(args.gpu2) if self.is_cuda \
             else torch.from_numpy(idx_sort)
         sent = sent.index_select(1, Variable(idx_sort))
 
@@ -368,7 +368,7 @@ class Model(nn.Module):
         sent_output = nn.utils.rnn.pad_packed_sequence(sent_output)[0]
 
         # Un-sort by length
-        idx_unsort = torch.from_numpy(idx_unsort).cuda() if self.is_cuda \
+        idx_unsort = torch.from_numpy(idx_unsort).cuda(args.gpu2) if self.is_cuda \
             else torch.from_numpy(idx_unsort)
         sent_output = sent_output.index_select(1, Variable(idx_unsort))
 
