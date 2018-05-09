@@ -300,7 +300,7 @@ class Model(nn.Module):
         pieces = []
         for weight, tensor in zip(normed_weights, tensors):
             pieces.append(weight * tensor)
-        return self.gamma * torch.sum(pieces)
+        return self.gamma * sum(pieces)
 
     # this is the main function used
     def forward(self, input: List[List[str]]):
