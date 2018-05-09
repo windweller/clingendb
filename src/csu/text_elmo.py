@@ -343,7 +343,7 @@ class Model(nn.Module):
         sent_reps = sent_reps.detach()  # so it's not backpropagating to ELMo
 
         # (batch_size, Time, 1024)
-        sent = self.scalar_mix(torch.split(sent_reps, split_size=3, dim=1))
+        sent = self.scalar_mix([sent_reps[:,0], sent_reps[:,1], sent_reps[:,2]])
 
         # Sort by length (keep idx)
         sent_len, idx_sort = np.sort(sent_len)[::-1], np.argsort(-sent_len)
