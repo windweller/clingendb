@@ -108,7 +108,6 @@ tokenizer = SpacyWordSplitter()
 x_data = []
 y_data = []
 
-
 def get_batch_iter(file, batch_size: int):
     global x_data
     global y_data
@@ -119,9 +118,9 @@ def get_batch_iter(file, batch_size: int):
                 x, y = line.split('\t')
                 x_words = tokenizer.split_words(x)
                 x_data.append(x_words)
-                y_data.append(y)
+                y_data.append(y.strip().split())
         logger.info("SpaCy preprocessing has finished!")
-        
+
     for ii in range(0, len(x_data), batch_size):
         yield x_data[ii:ii + batch_size], y_data[ii:ii + batch_size]
 
@@ -240,7 +239,7 @@ def move_to_cuda(th_var):
         return th_var
 
 
-def y_to_tensor(y: List[List[int]]) -> torch.FloatTensor:
+def y_to_tensor(y: List[List[str]]) -> torch.FloatTensor:
     y_tensor = torch.zeros([len(y), label_size])
     for i in range(len(y)):
         for l_b in y[i]:
