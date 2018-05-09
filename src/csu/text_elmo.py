@@ -105,16 +105,23 @@ logger.info(args)
 
 tokenizer = SpacyWordSplitter()
 
+x_data = []
+y_data = []
+
 
 def get_batch_iter(file, batch_size: int):
-    x_data = []
-    y_data = []
-    with open(file, 'r') as f:
-        for line in f:
-            x, y = line.split('\t')
-            x_words = tokenizer.split_words(x)
-            x_data.append(x_words)
-            y_data.append(y)
+    global x_data
+    global y_data
+
+    if len(x_data) == 0 and len(y_data) == 0:
+        with open(file, 'r') as f:
+            for line in f:
+                x, y = line.split('\t')
+                x_words = tokenizer.split_words(x)
+                x_data.append(x_words)
+                y_data.append(y)
+        logger.info("SpaCy preprocessing has finished!")
+        
     for ii in range(0, len(x_data), batch_size):
         yield x_data[ii:ii + batch_size], y_data[ii:ii + batch_size]
 
@@ -240,6 +247,7 @@ def y_to_tensor(y: List[List[int]]) -> torch.FloatTensor:
             y_tensor[i, int(l_b)] = 1.
     return y_tensor
 
+
 class Model(nn.Module):
     def __init__(self, elmo, hidden_size=512, depth=1, nclasses=5):
         super(Model, self).__init__()
@@ -278,7 +286,7 @@ class Model(nn.Module):
     def scalar_mix(self, tensors):
         if len(tensors) != self.mixture_size:
             raise ArithmeticError("{} tensors were passed, but the module was initialized to "
-                                     "mix {} tensors.".format(len(tensors), self.mixture_size))
+                                  "mix {} tensors.".format(len(tensors), self.mixture_size))
 
         normed_weights = torch.nn.functional.softmax(torch.cat([parameter for parameter
                                                                 in self.scalar_parameters]), dim=0)
@@ -591,7 +599,6 @@ def eval_model(model, valid_path, save_pred=False, save_viz=False):
     logger.info("\n" + metrics.classification_report(ys, preds))
 
     if save_pred:
-
         with open(pjoin(args.run_dir, 'label_vis_map.json'), 'wb') as f:
             json.dump([all_condensed_preds, all_condensed_ys, all_scores, all_print_y_labels, all_orig_texts], f)
 
@@ -616,6 +623,7 @@ def eval_model(model, valid_path, save_pred=False, save_viz=False):
 
     model.train()
     return correct / cnt
+
 
 def eval_adobe(model, valid_path, save_pred=False, save_viz=False):
     # when test_final is true, we save predictions
