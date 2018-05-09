@@ -356,7 +356,11 @@ class Model(nn.Module):
         # (batch_size, 3=layer_num, Time, 1024)
 
         # sent_len: (batch_size, num_steps)
-        sent_reps = sent_reps.detach().cuda(args.gpu2)  # so it's not backpropagating to ELMo
+        # this is the case when we have two GPUs
+        if args.gpu1 != args.gpu2:
+            sent_reps = sent_reps.detach().cuda(args.gpu2)  # so it's not backpropagating to ELMo
+        else:
+            sent_reps = sent_reps.detach()
 
         # (batch_size, Time, 1024)
         sent = self.scalar_mix([sent_reps[:,0], sent_reps[:,1], sent_reps[:,2]])
