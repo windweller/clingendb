@@ -27,7 +27,7 @@ from sklearn import metrics
 
 from torch.nn import Module
 
-from allennlp.data.tokenizers.word_tokenizer import SpacyWordSplitter
+import nltk
 from allennlp.commands.elmo import ElmoEmbedder
 from typing import Generator, List, Tuple
 
@@ -103,10 +103,11 @@ logging.getLogger().addHandler(file_handler)
 
 logger.info(args)
 
-tokenizer = SpacyWordSplitter()
 
 x_data = []
 y_data = []
+
+tokenizer = nltk.tokenize
 
 def get_batch_iter(file, batch_size: int):
     global x_data
@@ -116,8 +117,8 @@ def get_batch_iter(file, batch_size: int):
         with open(file, 'r') as f:
             for line in f:
                 x, y = line.split('\t')
-                x_words = tokenizer.split_words(x)
-                x_data.append(x_words)
+                x_words = tokenizer.word_tokenize(x)
+                x_data.append(" ".join(x_words))
                 y_data.append(y.strip().split())
         logger.info("SpaCy preprocessing has finished!")
 
