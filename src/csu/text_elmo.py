@@ -586,13 +586,11 @@ def eval_model(model, valid_path, save_pred=False, save_viz=False):
         iter += 1
 
         x, y_list = data
-        y = y_to_tensor(y_list)
+        y = Variable(y_to_tensor(y_list)).cuda(args.gpu2)
 
         # embed with ELMO
         # this is not sorted
-        sents, sent_lengths = elmo.batch_to_embeddings(x)
-
-        output = model(sents, sent_lengths)
+        output = model(x)
 
         if iter % 5 == 0 and save_pred:
             logger.info("at iteration {}".format(iter))
@@ -690,12 +688,11 @@ def eval_adobe(model, valid_path, save_pred=False, save_viz=False):
         iter += 1
 
         x, y_list = data
-        y = Variable(y_to_tensor(y_list)).cuda()
+        y = Variable(y_to_tensor(y_list)).cuda(args.gpu2)
 
         # embed with ELMO
         # this is not sorted
         # sents, sent_lengths = elmo.batch_to_embeddings(x)
-
         output = model(x)
 
         if iter % 5 == 0 and save_pred:
