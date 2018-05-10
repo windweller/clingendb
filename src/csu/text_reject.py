@@ -731,15 +731,19 @@ def train_module(model, optimizer,
             else:
                 loss = criterion(output, y)
 
+                per_example_loss = loss.data.cpu().numpy().tolist()
+
                 # detach the input because we don't want loss backprop into the representation
                 if args.reject_output:
                     s = torch.squeeze(model.reject_model(output.detach()))  # (batch_size)
+
                     # per example loss; average across all labels
                     loss = (1 - s) * loss.mean(dim=1) + s * args.gamma
                     # collect average rejection size
                     training_rejectiong_rate.append(s.mean().data[0])
                 elif args.reject_hidden:
                     s = torch.squeeze(model.reject_model(final_rep.detach()))  # (batch_size)
+
                     # per example loss; average across all labels
                     loss = (1 - s) * loss.mean(dim=1) + s * args.gamma
                     # collect average rejection size
@@ -758,8 +762,11 @@ def train_module(model, optimizer,
                 exp_cost = 0.99 * exp_cost + 0.01 * loss.data[0]
 
             if iter % 100 == 0:
-                logging.info("iter {} lr={} train_loss={} exp_cost={} \n".format(iter, optimizer.param_groups[0]['lr'],
-                                                                                 loss.data[0], exp_cost))
+                avg_rej_rate = sum(training_rejectiong_rate) / float(len(training_rejectiong_rate))
+
+                logging.info("iter {} lr={} train_loss={} exp_cost={} rej={} \n".format(iter, optimizer.param_groups[0]['lr'],
+                                                                                 loss.data[0], exp_cost, avg_rej_rate))
+                logging.info("per-example loss: {}".format(per_example_loss))
 
         valid_accu = eval_model(model, valid_iter)
         sys.stdout.write("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
