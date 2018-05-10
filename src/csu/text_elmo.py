@@ -41,6 +41,7 @@ argparser.add_argument("--max_lengths", type=int, default=1000)
 argparser.add_argument("--d", type=int, default=512)
 argparser.add_argument("--dropout", type=float, default=0.3,
                        help="dropout of word embeddings and softmax output")
+argparser.add_argument("--load_model", action="store_true", help="load model according to run_dir position")
 argparser.add_argument("--depth", type=int, default=1)
 argparser.add_argument("--lr", type=float, default=1.0)
 argparser.add_argument("--clip_grad", type=float, default=5)
@@ -111,8 +112,6 @@ y_data = []
 
 tokenizer = nltk.tokenize
 
-# TODO: need to sentence tokenize first...then send each sentence into ELMo
-# TODO: then concatenate those embeddings together...? But masking would be crazy...
 def get_batch_iter(file, batch_size: int):
     global x_data
     global y_data
@@ -129,6 +128,28 @@ def get_batch_iter(file, batch_size: int):
     for ii in range(0, len(x_data), batch_size):
         yield x_data[ii:ii + batch_size], y_data[ii:ii + batch_size]
 
+corpus_valid = {
+    'valid': [[], []],
+    'test': [[], []],
+    'adobe': [[], []]
+}
+
+def get_valid_batch_iter(file, batch_size: int, corpus_name: str):
+    global corpus_valid
+
+    x_data, y_data = corpus_valid[corpus_name]
+
+    if len(x_data) == 0 and len(y_data) == 0:
+        with open(file, 'r') as f:
+            for line in f:
+                x, y = line.split('\t')
+                x_words = tokenizer.word_tokenize(x)
+                x_data.append(x_words)
+                y_data.append(y.strip().split())
+        logger.info("NLTK preprocessing has finished on {}!".format(corpus_name))
+
+    for ii in range(0, len(x_data), batch_size):
+        yield x_data[ii:ii + batch_size], y_data[ii:ii + batch_size]
 
 """
 Util modules
@@ -559,7 +580,7 @@ def generate_meta_y(indices, meta_label_size, batch_size):
     return a
 
 
-def eval_model(model, valid_path, save_pred=False, save_viz=False):
+def eval_model(model, valid_path, corpus_name, save_pred=False, save_viz=False):
     # when test_final is true, we save predictions
     model.eval()
     criterion = BCEWithLogitsLoss()
@@ -579,7 +600,7 @@ def eval_model(model, valid_path, save_pred=False, save_viz=False):
 
     iter = 0
 
-    valid_iter = get_batch_iter(valid_path, 32)
+    valid_iter = get_valid_batch_iter(valid_path, 32, corpus_name)
 
     for data in valid_iter:
 
@@ -681,7 +702,7 @@ def eval_adobe(model, valid_path, save_pred=False, save_viz=False):
 
     iter = 0
 
-    valid_iter = get_batch_iter(valid_path, 32)
+    valid_iter = get_valid_batch_iter(valid_path, 32, corpus_name='adobe')
 
     for data in valid_iter:
 
@@ -888,7 +909,12 @@ def train_module(model, optimizer,
                 logger.info("iter {} lr={} train_loss={} exp_cost={} \n".format(iter, optimizer.param_groups[0]['lr'],
                                                                                 loss.data[0], exp_cost))
 
-        valid_accu = eval_model(model, valid_path)
+        # we even save the model before valid
+        # because it takes too long to train...
+        logger.info("saving model...")
+        torch.save(model, pjoin(args.run_dir, 'model.pickle'))
+
+        valid_accu = eval_model(model, valid_path, corpus_name='valid')
         logger.info("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
             epoch,
             optimizer.param_groups[0]['lr'],
@@ -985,10 +1011,14 @@ if __name__ == '__main__':
     # now we'll have to do sorting ourselves
     # ELMO returns things to us in the original order...we use InferSent code to help us sort...
 
-    elmo = ElmoEmbedder(cuda_device=args.gpu1)
-
-    model = Model(elmo, nclasses=len(labels),
-                  hidden_size=args.d, depth=args.depth)
+    if args.load_model:
+        # ha, not sure if ELMo will be saved with torch.save()
+        # but we'll see
+        model = torch.load(pjoin(args.run_dir, 'model.pickle'))
+    else:
+        elmo = ElmoEmbedder(cuda_device=args.gpu1)
+        model = Model(elmo, nclasses=len(labels),
+                      hidden_size=args.d, depth=args.depth)
 
     # print model information
     logger.info(model)
@@ -1008,7 +1038,7 @@ if __name__ == '__main__':
     train_module(model, optimizer, train_path, val_path,
                  max_epoch=args.max_epoch)
 
-    test_accu = eval_model(model, test_path, save_pred=True, save_viz=False)
+    test_accu = eval_model(model, test_path, corpus_name='test', save_pred=True, save_viz=False)
     logger.info("final test accu: {}".format(test_accu))
 
     adobe_accu = eval_adobe(model, adobe_path, save_pred=True, save_viz=False)
