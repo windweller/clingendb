@@ -400,6 +400,28 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
         total_loss += loss.data[0] * x.size(1)
 
         if not args.mc_dropout:
+            # this is the dropping out y and output part
+            if args.reject:
+                # so what we do here if to take out things
+                reject_scores = torch.squeeze(model.reject_model(output.detach()))
+                # (batch_size) (prob)
+                drop_choices = torch.bernoulli(reject_scores).data.cpu().numpy()  # 1 means drop, 0 means keep
+                drop_rate = np.mean(drop_choices)
+
+                drop_choices_list = drop_choices.tolist()
+                assert len(drop_choices_list) == batch_size
+
+                new_y = []
+                new_output = []
+                for i, d_c in enumerate(drop_choices_list):
+                    if d_c == 0.:
+                        new_y.append(y[i,:])
+                        new_output.append(output[i,:])
+                y = torch.stack(new_y, dim=0)
+                output = torch.stack(new_output, dim=0)
+
+                logging.info("drop rate on eval set is {}".format(drop_rate))
+
             scores = output_to_prob(output).data.cpu().numpy()
             preds = output_to_preds(output)
         else:
@@ -427,7 +449,6 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
         # meta_y = generate_meta_y(y_indices.data.cpu().numpy().tolist(), meta_label_size, batch_size)
         # meta-level prediction needs additional code
 
-        # TODO: this is possibly incorrect?...not that we are using accuracy...
         correct += metrics.accuracy_score(y.data.cpu().numpy(), sparse_preds)
         cnt += 1
 
@@ -472,7 +493,6 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
         with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
             json.dump(labels, f)
 
-    model.train()
     return correct / cnt
 
 def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False):
