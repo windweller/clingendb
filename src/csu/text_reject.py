@@ -731,7 +731,7 @@ def train_module(model, optimizer,
             else:
                 loss = criterion(output, y)
 
-                per_example_loss = loss.data.cpu().numpy().tolist()
+                per_example_loss = loss.mean(dim=1).data.cpu().numpy().tolist()
 
                 # detach the input because we don't want loss backprop into the representation
                 if args.reject_output:
