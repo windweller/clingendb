@@ -786,21 +786,24 @@ def train_module(model, optimizer,
 
                 per_example_loss = loss.mean(dim=1).data.cpu().numpy().tolist()
 
-                # detach the input because we don't want loss backprop into the representation
-                if args.reject_output:
-                    s = torch.squeeze(model.reject_model(output.detach()))  # (batch_size)
+                if epoch > args.reject_delay:
+                    # detach the input because we don't want loss backprop into the representation
+                    if args.reject_output:
+                        s = torch.squeeze(model.reject_model(output.detach()))  # (batch_size)
 
-                    # per example loss; average across all labels
-                    loss = (1 - s) * loss.mean(dim=1) + s * args.gamma
-                    # collect average rejection size
-                    training_rejectiong_rate.append(s.mean().data[0])
-                elif args.reject_hidden:
-                    s = torch.squeeze(model.reject_model(final_rep.detach()))  # (batch_size)
+                        # per example loss; average across all labels
+                        loss = (1 - s) * loss.mean(dim=1) + s * args.gamma
+                        # collect average rejection size
+                        training_rejectiong_rate.append(s.mean().data[0])
+                    elif args.reject_hidden:
+                        s = torch.squeeze(model.reject_model(final_rep.detach()))  # (batch_size)
 
-                    # per example loss; average across all labels
-                    loss = (1 - s) * loss.mean(dim=1) + s * args.gamma
-                    # collect average rejection size
-                    training_rejectiong_rate.append(s.mean().data[0])
+                        # per example loss; average across all labels
+                        loss = (1 - s) * loss.mean(dim=1) + s * args.gamma
+                        # collect average rejection size
+                        training_rejectiong_rate.append(s.mean().data[0])
+                else:
+                    loss = loss.mean(dim=1)
 
             loss = loss.mean()
             loss.backward()
@@ -821,8 +824,9 @@ def train_module(model, optimizer,
                                                                                  loss.data[0], exp_cost, avg_rej_rate))
                 logging.info("per-example loss: {}".format(per_example_loss))
 
-        args.gamma = args.reject_anneal * args.gamma
-        logging.info("anneal gamma to {}".format(args.gamma))
+        if epoch > args.reject_delay:
+            args.gamma = args.reject_anneal * args.gamma
+            logging.info("anneal gamma to {}".format(args.gamma))
 
         valid_accu = eval_model(model, valid_iter)
         sys.stdout.write("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
