@@ -654,10 +654,10 @@ def eval_model(model, valid_path, corpus_name, save_pred=False, save_viz=False):
     logger.info("\n" + metrics.classification_report(ys, preds))
 
     if save_pred:
-        with open(pjoin(args.run_dir, 'label_vis_map.json'), 'wb') as f:
+        with open(pjoin(args.run_dir, 'label_vis_map.json'), 'w') as f:
             json.dump([all_condensed_preds, all_condensed_ys, all_scores, all_print_y_labels, all_orig_texts], f)
 
-        with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
+        with open(pjoin(args.run_dir, 'label_map.txt'), 'w') as f:
             json.dump(labels, f)
 
     if save_viz:
