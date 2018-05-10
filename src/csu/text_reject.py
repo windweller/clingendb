@@ -373,6 +373,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
 
         if not args.mc_dropout:
             output_vecs = model.get_vectors(x, x_lengths)
+            final_rep = torch.max(output_vecs, 0)[0].squeeze(0)
             output = model.get_logits(output_vecs)  # this is logits, not sent to sigmoid yet!
         else:
             # [(batch_size, class_scores) * 10]
@@ -402,8 +403,12 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
         if not args.mc_dropout:
             # this is the dropping out y and output part
             if args.reject:
-                # so what we do here if to take out things
-                reject_scores = torch.squeeze(model.reject_model(output.detach()))
+                if args.reject_output:
+                    reject_scores = torch.squeeze(model.reject_model(output.detach()))
+                elif args.reject_hidden:
+                    reject_scores = torch.squeeze(model.reject_model(final_rep.detach()))
+                    # so what we do here if to take out things
+
                 # (batch_size) (prob)
                 drop_choices = torch.bernoulli(reject_scores).data.cpu().numpy()  # 1 means drop, 0 means keep
                 drop_rate = np.mean(drop_choices)
@@ -536,6 +541,7 @@ def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False):
 
         if not args.mc_dropout:
             output_vecs = model.get_vectors(x, x_lengths)
+            final_rep = torch.max(output_vecs, 0)[0].squeeze(0)
             output = model.get_logits(output_vecs)  # this is logits, not sent to sigmoid yet!
         else:
             # [(batch_size, class_scores) * 10]
@@ -570,6 +576,31 @@ def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False):
         total_loss += loss.data[0] * x.size(1)
 
         if not args.mc_dropout:
+            if args.reject:
+                if args.reject_output:
+                    reject_scores = torch.squeeze(model.reject_model(output.detach()))
+                elif args.reject_hidden:
+                    reject_scores = torch.squeeze(model.reject_model(final_rep.detach()))
+                    # so what we do here if to take out things
+
+                # (batch_size) (prob)
+                drop_choices = torch.bernoulli(reject_scores).data.cpu().numpy()  # 1 means drop, 0 means keep
+                drop_rate = np.mean(drop_choices)
+
+                drop_choices_list = drop_choices.tolist()
+                assert len(drop_choices_list) == batch_size
+
+                new_y = []
+                new_output = []
+                for i, d_c in enumerate(drop_choices_list):
+                    if d_c == 0.:
+                        new_y.append(y[i,:])
+                        new_output.append(output[i,:])
+                y = torch.stack(new_y, dim=0)
+                output = torch.stack(new_output, dim=0)
+
+                logging.info("drop rate on eval set is {}".format(drop_rate))
+
             scores = output_to_prob(output).data.cpu().numpy()
             preds = output_to_preds(output)
         else:
