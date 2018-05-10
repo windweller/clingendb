@@ -423,6 +423,11 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
                     if d_c == 0.:
                         new_y.append(y[i,:])
                         new_output.append(output[i,:])
+
+                if len(new_y) == 0:
+                    logging.info("rejected all examples")
+                    return
+                
                 y = torch.stack(new_y, dim=0)
                 output = torch.stack(new_output, dim=0)
 
