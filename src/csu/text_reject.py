@@ -412,7 +412,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
 
                 # (batch_size) (prob)
                 drop_choices = torch.bernoulli(reject_scores).data.cpu().numpy()  # 1 means drop, 0 means keep
-                drop_rate = np.mean(drop_choices)
+                drop_rate = np.sum(drop_choices)
 
                 drop_choices_list = drop_choices.tolist()
                 assert len(drop_choices_list) == batch_size
@@ -426,7 +426,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
                 y = torch.stack(new_y, dim=0)
                 output = torch.stack(new_output, dim=0)
 
-                logging.info("drop rate on eval set is {}".format(drop_rate))
+                logging.info("number of examples dropped on eval set is {}".format(drop_rate))
 
             scores = output_to_prob(output).data.cpu().numpy()
             preds = output_to_preds(output)
@@ -677,7 +677,7 @@ def train_module(model, optimizer,
 
     exp_cost = None
     end_of_epoch = True  # False  # set true because we want immediate feedback...
-    iter = 0
+
     best_valid = 0.
     epoch = 1
 
@@ -686,6 +686,7 @@ def train_module(model, optimizer,
     softmax_weight = model.get_softmax_weight()
 
     for n in range(max_epoch):
+        iter = 0
         for data in train_iter:
             iter += 1
 
