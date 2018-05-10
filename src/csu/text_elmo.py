@@ -759,12 +759,12 @@ def eval_adobe(model, valid_path, save_pred=False, save_viz=False):
     if save_pred:
         # So the format for each entry is: y = [], pred = [], for all labels
         # we also need
-        with open(pjoin(args.run_dir, 'adobe_label_vis_map.json'), 'wb') as f:
+        with open(pjoin(args.run_dir, 'adobe_label_vis_map.json'), 'w') as f:
             # used to be : all_condensed_preds, all_condensed_ys, all_scores, all_print_y_labels
             json.dump([all_condensed_preds, all_condensed_ys, all_scores, all_print_y_labels, all_orig_texts], f)
 
     if save_viz:
-        with open(pjoin(args.run_dir, 'adobe_label_vis_map.json'), 'wb') as f:
+        with open(pjoin(args.run_dir, 'adobe_label_vis_map.json'), 'w') as f:
             json.dump([all_condensed_preds, all_condensed_ys, all_orig_texts, all_text_vis], f)
 
     model.train()
