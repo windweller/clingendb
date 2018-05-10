@@ -745,7 +745,7 @@ def train_module(model, optimizer,
                     # collect average rejection size
                     training_rejectiong_rate.append(s.mean().data[0])
 
-            loss.backward()
+            loss.mean().backward()
 
             torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
 
