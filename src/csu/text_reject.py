@@ -68,7 +68,7 @@ argparser.add_argument("--reject", action="store_true", help="learn to reject")
 argparser.add_argument("--reject_output", action="store_true", help="learn to reject by logit")
 argparser.add_argument("--reject_hidden", action="store_true", help="learn to reject by hidden rep")
 argparser.add_argument("--reject_delay", type=int, default=0, help="delay optimizing for rejection loss after certain epoch")
-argparser.add_argument("--reject_anneal", type=int, default=1., help="at end of each epoch, we halve the rejection rate")
+argparser.add_argument("--reject_anneal", type=float, default=1., help="at end of each epoch, we halve the rejection rate")
 argparser.add_argument("--gamma", type=float, default=5., help="default rejection cost")
 
 argparser.add_argument("--l2_penalty_softmax", type=float, default=0., help="add L2 penalty on softmax weight matrices")
