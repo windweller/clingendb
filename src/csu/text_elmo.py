@@ -1030,16 +1030,17 @@ if __name__ == '__main__':
         sum(x.numel() for x in model.parameters() if x.requires_grad)
     ))
 
-    need_grad = lambda x: x.requires_grad
-    optimizer = optim.Adam(
-        filter(need_grad, model.parameters()),
-        lr=0.001, weight_decay=args.l2_str)
+    if not args.load_model:
+        need_grad = lambda x: x.requires_grad
+        optimizer = optim.Adam(
+            filter(need_grad, model.parameters()),
+            lr=0.001, weight_decay=args.l2_str)
 
-    train_module(model, optimizer, train_path, val_path,
-                 max_epoch=args.max_epoch)
+        train_module(model, optimizer, train_path, val_path,
+                     max_epoch=args.max_epoch)
+    else:
+        test_accu = eval_model(model, test_path, corpus_name='test', save_pred=True, save_viz=False)
+        logger.info("final test accu: {}".format(test_accu))
 
-    test_accu = eval_model(model, test_path, corpus_name='test', save_pred=True, save_viz=False)
-    logger.info("final test accu: {}".format(test_accu))
-
-    adobe_accu = eval_adobe(model, adobe_path, save_pred=True, save_viz=False)
-    logger.info("final adobe accu: {}".format(adobe_accu))
+        adobe_accu = eval_adobe(model, adobe_path, save_pred=True, save_viz=False)
+        logger.info("final adobe accu: {}".format(adobe_accu))
