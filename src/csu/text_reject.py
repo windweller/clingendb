@@ -68,6 +68,7 @@ argparser.add_argument("--reject", action="store_true", help="learn to reject")
 argparser.add_argument("--reject_output", action="store_true", help="learn to reject by logit")
 argparser.add_argument("--reject_hidden", action="store_true", help="learn to reject by hidden rep")
 argparser.add_argument("--reject_delay", type=int, default=0, help="delay optimizing for rejection loss after certain epoch")
+argparser.add_argument("--reject_anneal", type=int, default=1., help="at end of each epoch, we halve the rejection rate")
 argparser.add_argument("--gamma", type=float, default=5., help="default rejection cost")
 
 argparser.add_argument("--l2_penalty_softmax", type=float, default=0., help="add L2 penalty on softmax weight matrices")
@@ -818,6 +819,9 @@ def train_module(model, optimizer,
                 logging.info("iter {} lr={} train_loss={} exp_cost={} rej={} \n".format(iter, optimizer.param_groups[0]['lr'],
                                                                                  loss.data[0], exp_cost, avg_rej_rate))
                 logging.info("per-example loss: {}".format(per_example_loss))
+
+        args.gamma = args.reject_anneal * args.gamma
+        logging.info("anneal gamma to {}".format(args.gamma))
 
         valid_accu = eval_model(model, valid_iter)
         sys.stdout.write("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
