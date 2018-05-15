@@ -147,6 +147,8 @@ def preprocess_text(text):
 
     # simple expansions:
     text = no_date_time.replace('w/', ' with ') # adding space to avoid things like "w/ants"
+    text = no_date_time.replace('BUT', ' but ') # adding space to avoid things like "w/ants"
+    text = no_date_time.replace('IS', ' is ') # adding space to avoid things like "w/ants"
 
     # replace abbr with expanded list
     # first we expand 'OA/AR' into 'OA / AR'
