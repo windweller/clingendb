@@ -427,11 +427,12 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
                 if len(new_y) == 0:
                     logging.info("rejected all examples")
                     return
-                
+
                 y = torch.stack(new_y, dim=0)
                 output = torch.stack(new_output, dim=0)
 
                 logging.info("number of examples dropped on eval set is {}".format(drop_rate))
+                logging.info("drop chances of each example is: {}".format(reject_scores.data.cpu().numpy().tolist()))
 
             scores = output_to_prob(output).data.cpu().numpy()
             preds = output_to_preds(output)
@@ -827,6 +828,7 @@ def train_module(model, optimizer,
 
                 logging.info("iter {} lr={} train_loss={} exp_cost={} rej={} \n".format(iter, optimizer.param_groups[0]['lr'],
                                                                                  loss.data[0], exp_cost, avg_rej_rate))
+                logging.info("per-example rej: {}".format(s.data.cpu().numpy().tolist()))
                 logging.info("per-example loss: {}".format(per_example_loss))
 
         if epoch > args.reject_delay:
