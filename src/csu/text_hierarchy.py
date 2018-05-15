@@ -59,6 +59,7 @@ argparser.add_argument("--emb_update", action="store_true", help="update embeddi
 argparser.add_argument("--mc_dropout", action="store_true", help="use variational dropout at inference time")
 argparser.add_argument("--dice_loss", action="store_true", help="use Dice loss to solve class imbalance, currently only implemented without extra penalty")
 argparser.add_argument("--bidir", action="store_true", help="use bidirectional ")
+argparser.add_argument("--abbr", action="store_true", help="use abbr mapped adobe files ")
 
 argparser.add_argument("--l2_penalty_softmax", type=float, default=0., help="add L2 penalty on softmax weight matrices")
 argparser.add_argument("--l2_str", type=float, default=0, help="a scalar that reduces strength")  # 1e-3
@@ -824,9 +825,14 @@ if __name__ == '__main__':
     LABEL = MultiLabelField(sequential=True, use_vocab=False, label_size=label_size, tensor_type=torch.FloatTensor)
 
     # load in adobe
-    adobe_test = data.TabularDataset(path='../../data/csu/adobe_snomed_multi_label_no_des_test.tsv',
-                                     format='tsv',
-                                     fields=[('Text', TEXT), ('Description', LABEL)])
+    if args.abbr:
+        adobe_test = data.TabularDataset(path='../../data/csu/adobe_abbr_matched_snomed_multi_label_no_des_test.tsv',
+                                         format='tsv',
+                                         fields=[('Text', TEXT), ('Description', LABEL)])
+    else:
+        adobe_test = data.TabularDataset(path='../../data/csu/adobe_snomed_multi_label_no_des_test.tsv',
+                                         format='tsv',
+                                         fields=[('Text', TEXT), ('Description', LABEL)])
 
     if args.dataset == 'multi_top_snomed_no_des':
         train, val, test = data.TabularDataset.splits(
