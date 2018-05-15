@@ -152,9 +152,12 @@ def preprocess_text(text):
 
     new_text = []
     for word in text.split():
-        if word.strip().lower() in abbr_dic:
-            new_text.append(word.strip())
+        mt_word = word.strip().lower()
+        if mt_word in abbr_dic:
+            new_text.append(abbr_dic[mt_word])
             matched += 1
+        else:
+            new_text.append(word.strip())
 
     one_white_space = ' '.join(new_text)
 
