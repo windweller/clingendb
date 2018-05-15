@@ -149,6 +149,8 @@ def preprocess_text(text):
     text = no_date_time.replace('w/', ' with ') # adding space to avoid things like "w/ants"
     text = text.replace('BUT', ' but ') # adding space to avoid things like "w/ants"
     text = text.replace('IS', ' is ') # adding space to avoid things like "w/ants"
+    text = text.replace('NOT', ' not ') # adding space to avoid things like "w/ants"
+    text = text.replace('(s)', 's')  # eye(s) -> eyes
 
     matched = 0
 
