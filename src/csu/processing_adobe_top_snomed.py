@@ -145,10 +145,13 @@ def preprocess_text(text):
     # this seems to be performing well :)
     no_date_time = remove_date_time(text)
 
+    # simple expansions:
+    text = no_date_time.replace('w/', ' with ') # adding space to avoid things like "w/ants"
+
     # replace abbr with expanded list
     # first we expand 'OA/AR' into 'OA / AR'
     matched = 0
-    text = no_date_time.replace('/', ' / ')
+    text = text.replace('/', ' / ')
 
     new_text = []
     for word in text.split():
