@@ -156,6 +156,11 @@ def preprocess_text(text):
         if mt_word in abbr_dic:
             new_text.append(abbr_dic[mt_word])
             matched += 1
+        elif word.isupper() and len(word) >= 4:
+            # this will not kill capitalization
+            # only longer than 4 characters will trigger such as: "BODY"
+            # it's after the abbreviation list
+            new_text.append(word.lower())
         else:
             new_text.append(word.strip())
 
