@@ -147,13 +147,12 @@ def preprocess_text(text):
 
     # simple expansions:
     text = no_date_time.replace('w/', ' with ') # adding space to avoid things like "w/ants"
-    text = no_date_time.replace('BUT', ' but ') # adding space to avoid things like "w/ants"
-    text = no_date_time.replace('IS', ' is ') # adding space to avoid things like "w/ants"
+    text = text.replace('BUT', ' but ') # adding space to avoid things like "w/ants"
+    text = text.replace('IS', ' is ') # adding space to avoid things like "w/ants"
 
     matched = 0
 
     # some abbreviations have '/' like 'V/D' or 'R/O'
-
 
     # replace abbr with expanded list
     # first we expand 'OA/AR' into 'OA / AR'
@@ -176,6 +175,7 @@ def preprocess_text(text):
             for sw in sub_words:
                 if sw in abbr_dic:
                     new_text.extend([abbr_dic[sw], '/'])
+                    matched += 1
                 else:
                     new_text.extend([sw, '/'])
             new_text = new_text[:-1]  # get rid of the last extra '/'
