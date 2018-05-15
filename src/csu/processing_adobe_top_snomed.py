@@ -150,10 +150,15 @@ def preprocess_text(text):
     text = no_date_time.replace('BUT', ' but ') # adding space to avoid things like "w/ants"
     text = no_date_time.replace('IS', ' is ') # adding space to avoid things like "w/ants"
 
+    matched = 0
+
+    # some abbreviations have '/' like 'V/D' or 'R/O'
+
+
     # replace abbr with expanded list
     # first we expand 'OA/AR' into 'OA / AR'
-    matched = 0
-    text = text.replace('/', ' / ')
+
+    # text = text.replace('/', ' / ')
 
     new_text = []
     for word in text.split():
@@ -166,6 +171,14 @@ def preprocess_text(text):
             # only longer than 4 characters will trigger such as: "BODY"
             # it's after the abbreviation list
             new_text.append(word.lower())
+        elif '/' in mt_word:
+            sub_words = mt_word.split('/')
+            for sw in sub_words:
+                if sw in abbr_dic:
+                    new_text.extend([abbr_dic[sw], '/'])
+                else:
+                    new_text.extend([sw, '/'])
+            new_text = new_text[:-1]  # get rid of the last extra '/'
         else:
             new_text.append(word.strip())
 
