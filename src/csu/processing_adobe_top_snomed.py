@@ -145,10 +145,20 @@ def preprocess_text(text):
     # this seems to be performing well :)
     no_date_time = remove_date_time(text)
 
-    one_white_space = ' '.join(no_date_time.split())
-    no_html_entities = re.sub('&[a-z]+;', '', one_white_space)
+    # replace abbr with expanded list
+    # first we expand 'OA/AR' into 'OA / AR'
+    matched = 0
+    text = no_date_time.replace('/', ' / ')
 
-    return no_html_entities
+    new_text = []
+    for word in text.split():
+        if word.strip().lower() in abbr_dic:
+            new_text.append(word.strip())
+            matched += 1
+
+    one_white_space = ' '.join(new_text)
+
+    return one_white_space, matched
 
 
 def count_freq(list_labels):
@@ -161,11 +171,21 @@ def count_freq(list_labels):
 if __name__ == '__main__':
     header = True
 
+    abbr_dic = {}
+
+    with open('../../data/csu/Files_for_parsing/vet abbreviations-short.csv', 'r') as f:
+        csv_reader = csv.reader(f)
+        for columns in csv_reader:
+            exp = re.sub('\(.+\)', '', columns[1])  # get rid of parentheses
+            abbr_dic[columns[0].lower()] = exp
+
     examples = []
     seq_labels_dist = []
     labels_dist = []
     label_num_per_example = []
     total_text = 0
+
+    total_matched = 0
 
     empty_seq_label_cnt = 0
     with open("../../data/csu/Files_for_parsing/adobe_DJ.csv", 'r') as f:
@@ -184,16 +204,19 @@ if __name__ == '__main__':
 
             labels = collapse_label(condense_labels)
 
-            text = preprocess_text(columns[9] + ' ' + columns[10] + ' ' + columns[11] + ' ' + columns[12])
+            text, matched = preprocess_text(columns[9] + ' ' + columns[10] + ' ' + columns[11] + ' ' + columns[12])
 
             labels_dist.extend(labels)
 
             examples.append([text, " ".join(labels)])
 
+            total_matched += matched
+
     labels_dist = count_freq(labels_dist)
     label_list = snomed_labels
 
     print("number of labels is {}".format(len(labels_dist)))
+    print("number of abbreviation matched is {}".format(total_matched))
 
     print "code, name, n"
     for s_l in snomed_labels:
