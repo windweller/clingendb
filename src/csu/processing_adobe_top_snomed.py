@@ -222,4 +222,5 @@ if __name__ == '__main__':
     for s_l in snomed_labels:
         print "{}\t{}\t{}".format(s_l, snomed_names[snomed_labels.index(s_l)], labels_dist[s_l])
 
-    write_to_tsv(examples, "../../data/csu/adobe_snomed_multi_label_no_des_test.tsv", label_list)
+    # write_to_tsv(examples, "../../data/csu/adobe_snomed_multi_label_no_des_test.tsv", label_list)
+    write_to_tsv(examples, "../../data/csu/adobe_abbr_matched_snomed_multi_label_no_des_test.tsv", label_list)
