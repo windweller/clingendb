@@ -963,7 +963,10 @@ def train_module(model, optimizer,
                 exp_cost = 0.99 * exp_cost + 0.01 * loss.data[0]
 
             if iter % 100 == 0:
-                avg_rej_rate = s.mean().data[0]  # a snapshot, which it should be!!
+                if epoch > args.reject_delay:
+                    avg_rej_rate = s.mean().data[0]  # a snapshot, which it should be!!
+                else:
+                    avg_rej_rate = 0.
 
                 logging.info(
                     "iter {} lr={} train_loss={} exp_cost={} rej={} \n".format(iter, optimizer.param_groups[0]['lr'],
