@@ -200,18 +200,18 @@ class Model(nn.Module):
         self.embed.weight.data.copy_(vocab.vectors)
         self.embed.weight.requires_grad = True if args.emb_update else False
 
-        if args.reject:
-            # we add more parameters
-            # takes in logits or probs as input, and output whether to drop or not
-            # reject based on the whole batch
-
-            # (batch_size, label_size)
-            reject_dim = nclasses if args.reject_output else d_out
-
-            self.reject_model = nn.Sequential(
-                nn.Linear(reject_dim, 1),
-                nn.Sigmoid()
-            )
+        # if args.reject:
+        #     # we add more parameters
+        #     # takes in logits or probs as input, and output whether to drop or not
+        #     # reject based on the whole batch
+        #
+        #     # (batch_size, label_size)
+        #     reject_dim = nclasses if args.reject_output else d_out
+        #
+        #     self.reject_model = nn.Sequential(
+        #         nn.Linear(reject_dim, 1),
+        #         nn.Sigmoid()
+        #     )
 
     def forward(self, input, lengths=None):
         output_vecs = self.get_vectors(input, lengths)
@@ -361,7 +361,7 @@ def spread_by_meta_y(y, indices):
     return y
 
 
-def eval_model(model, valid_iter, save_pred=False, save_viz=False):
+def eval_model(model, valid_iter, save_pred=False, save_viz=False, allow_reject=False):
     # when test_final is true, we save predictions
     if not args.mc_dropout:
         model.eval()
@@ -431,11 +431,11 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
 
         if not args.mc_dropout:
             # this is the dropping out y and output part
-            if args.reject:
+            if args.reject and allow_reject:
                 if args.reject_output:
-                    reject_scores = torch.squeeze(model.reject_model(output.detach()))
+                    reject_scores = torch.squeeze(reject_model.reject(output.detach()))
                 elif args.reject_hidden:
-                    reject_scores = torch.squeeze(model.reject_model(final_rep.detach()))
+                    reject_scores = torch.squeeze(reject_model.reject(final_rep.detach()))
                     # so what we do here if to take out things
 
                 # (batch_size) (prob)
@@ -541,7 +541,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     return correct / cnt
 
 
-def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False):
+def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False, allow_reject=False):
     # when test_final is true, we save predictions
     if not args.mc_dropout:
         model.eval()
@@ -617,11 +617,11 @@ def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False):
         total_loss += loss.data[0] * x.size(1)
 
         if not args.mc_dropout:
-            if args.reject:
+            if args.reject and allow_reject:
                 if args.reject_output:
-                    reject_scores = torch.squeeze(model.reject_model(output.detach()))
+                    reject_scores = torch.squeeze(reject_model.reject(output.detach()))
                 elif args.reject_hidden:
-                    reject_scores = torch.squeeze(model.reject_model(final_rep.detach()))
+                    reject_scores = torch.squeeze(reject_model.reject(final_rep.detach()))
                     # so what we do here if to take out things
 
                 # (batch_size) (prob)
@@ -926,7 +926,11 @@ def train_module(model, optimizer,
             args.gamma = args.reject_anneal * args.gamma
             logging.info("anneal gamma to {}".format(args.gamma))
 
-        valid_accu = eval_model(model, valid_iter)
+        # if we follow train_reject path, we evaluate with rejection
+        # otherwise we allow reject after the delay
+        allow_reject = True if train_reject else epoch > args.reject_delay
+
+        valid_accu = eval_model(model, valid_iter, allow_reject=allow_reject)
         sys.stdout.write("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
             epoch,
             optimizer.param_groups[0]['lr'],
@@ -1075,8 +1079,8 @@ if __name__ == '__main__':
         train_module(model, optimizer, train_iter, val_iter,
                      max_epoch=args.reject_epoch, train_reject=True)
 
-    test_accu = eval_model(model, test_iter, save_pred=True, save_viz=False)
+    test_accu = eval_model(model, test_iter, save_pred=True, save_viz=False, allow_reject=args.reject)
     logger.info("final test accu: {}".format(test_accu))
 
-    adobe_accu = eval_adobe(model, adobe_test_iter, save_pred=True, save_viz=False)
+    adobe_accu = eval_adobe(model, adobe_test_iter, save_pred=True, save_viz=False, allow_reject=args.reject)
     logger.info("final adobe accu: {}".format(adobe_accu))
