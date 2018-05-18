@@ -79,6 +79,7 @@ argparser.add_argument("--fix_lstm", action="store_true",
                        help="use jointly with --reject_delay 5, we only do second stage update")
 argparser.add_argument("--reject_epoch", type=int, default=2, help="how many epochs you'll train rejection module")
 argparser.add_argument("--save_all", action="store_true", help="this will save on both train and test; TODO: add adobe saving")
+argparser.add_argument("--rej_complex", action="store_true", help="use a two layer neural network, a complex rejection function")
 
 argparser.add_argument("--l2_penalty_softmax", type=float, default=0., help="add L2 penalty on softmax weight matrices")
 argparser.add_argument("--l2_str", type=float, default=0, help="a scalar that reduces strength")  # 1e-3
@@ -174,10 +175,23 @@ class Reject_Model(nn.Module):
         self.d_out = d_out
         reject_dim = nclasses if args.reject_output else d_out
 
-        self.reject_model = nn.Sequential(
-            nn.Linear(reject_dim, 1),
-            nn.Sigmoid()
-        )
+        # so...technically...a linear regression is very very very bad
+        # at seperating two complex set of data
+
+        if args.rej_complex:
+            self.reject_model = nn.Sequential(
+                nn.Linear(reject_dim, int(reject_dim / 2.)),
+                nn.SELU,
+                nn.Linear(int(reject_dim / 2.), int(reject_dim / 4.)),
+                nn.SELU,
+                nn.Linear(int(reject_dim / 4.), 1.),
+                nn.Sigmoid()
+            )
+        else:
+            self.reject_model = nn.Sequential(
+                nn.Linear(reject_dim, 1),
+                nn.Sigmoid()
+            )
 
     def reject(self, x):
         # x: (batch_size, rej_dim)
