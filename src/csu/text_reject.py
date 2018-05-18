@@ -485,8 +485,11 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False, allow_reject=
                 y = torch.stack(new_y, dim=0)
                 output = torch.stack(new_output, dim=0)
 
-                logging.info("number of examples dropped on eval set is {}".format(drop_rate))
-                logging.info("drop chances of each example is: {}".format(reject_scores.data.cpu().numpy().tolist()))
+                # 5000 / 128 ~= 39
+                # every 10 times, we see this 3 times.
+                if iter % 10 == 0:
+                    logging.info("number of examples dropped on eval set is {}".format(drop_rate))
+                    logging.info("drop chances of each example is: {}".format(reject_scores.data.cpu().numpy().tolist()))
 
             scores = output_to_prob(output).data.cpu().numpy()
             preds = output_to_preds(output)
@@ -759,8 +762,6 @@ def train_module(model, optimizer,
     best_valid = 0.
     epoch = 1
 
-    training_rejectiong_rate = []
-
     softmax_weight = model.get_softmax_weight()
 
     if args.save_all:
@@ -806,15 +807,11 @@ def train_module(model, optimizer,
 
                     # per example loss; average across all labels
                     loss = (1 - s) * loss.mean(dim=1) + s * args.gamma
-                    # collect average rejection size
-                    training_rejectiong_rate.append(s.mean().data[0])
                 elif args.reject_hidden:
                     s = torch.squeeze(reject_model.reject(final_rep.detach()))  # (batch_size)
 
                     # per example loss; average across all labels
                     loss = (1 - s) * loss.mean(dim=1) + s * args.gamma
-                    # collect average rejection size
-                    training_rejectiong_rate.append(s.mean().data[0])
 
                 loss = loss.mean()
                 loss.backward()
@@ -829,7 +826,8 @@ def train_module(model, optimizer,
                     exp_cost = 0.99 * exp_cost + 0.01 * loss.data[0]
 
                 if iter % 100 == 0:
-                    avg_rej_rate = sum(training_rejectiong_rate) / float(max(len(training_rejectiong_rate), 1.))
+                    # s is the rejection score...basically
+                    avg_rej_rate = s.mean().data[0]
 
                     logging.info(
                         "iter {} lr={} train_loss={} exp_cost={} rej={} \n".format(iter,
@@ -938,14 +936,12 @@ def train_module(model, optimizer,
                         # per example loss; average across all labels
                         loss = (1 - s) * loss.mean(dim=1) + s * args.gamma
                         # collect average rejection size
-                        training_rejectiong_rate.append(s.mean().data[0])
                     elif args.reject_hidden:
                         s = torch.squeeze(reject_model.reject(final_rep.detach()))  # (batch_size)
 
                         # per example loss; average across all labels
                         loss = (1 - s) * loss.mean(dim=1) + s * args.gamma
                         # collect average rejection size
-                        training_rejectiong_rate.append(s.mean().data[0])
                 else:
                     loss = loss.mean(dim=1)
 
@@ -967,7 +963,7 @@ def train_module(model, optimizer,
                 exp_cost = 0.99 * exp_cost + 0.01 * loss.data[0]
 
             if iter % 100 == 0:
-                avg_rej_rate = sum(training_rejectiong_rate) / float(max(len(training_rejectiong_rate), 1))
+                avg_rej_rate = s.mean().data[0]  # a snapshot, which it should be!!
 
                 logging.info(
                     "iter {} lr={} train_loss={} exp_cost={} rej={} \n".format(iter, optimizer.param_groups[0]['lr'],
