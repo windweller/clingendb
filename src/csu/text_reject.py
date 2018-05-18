@@ -752,6 +752,9 @@ def train_module(model, optimizer,
             # in here we create a branch that focuses on rejection model
             # and will optimize its parameters
             if train_reject:
+                loss = criterion(output, y)
+                per_example_loss = loss.mean(dim=1).data.cpu().numpy().tolist()
+
                 if args.reject_output:
                     s = torch.squeeze(reject_model.reject(output.detach()))  # (batch_size)
 
