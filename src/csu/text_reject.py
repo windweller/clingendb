@@ -790,12 +790,9 @@ def train_module(model, optimizer,
 
             (x, x_lengths), y = data.Text, data.Description
 
-            if args.reject:
-                output_vec = model.get_vectors(x, x_lengths)  # this is just logit (before calling sigmoid)
-                final_rep = torch.max(output_vec, 0)[0].squeeze(0)
-                output = model.get_logits(output_vec)
-            else:
-                output = model(x, x_lengths)
+            output_vec = model.get_vectors(x, x_lengths)  # this is just logit (before calling sigmoid)
+            final_rep = torch.max(output_vec, 0)[0].squeeze(0)
+            output = model.get_logits(output_vec)
 
             # we don't want to save anything for reject training phase
             # need to re-assemble these back to numpy then pytorch
