@@ -30,6 +30,8 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from torchtext import data
 
+import pdb
+
 from sklearn import metrics
 import pickle
 
@@ -487,9 +489,16 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False, allow_reject=
 
                 # 5000 / 128 ~= 39
                 # every 10 times, we see this 3 times.
-                if iter % 10 == 0:
+                if iter % 5 == 0:
                     logging.info("number of examples dropped on eval set is {}".format(drop_rate))
                     logging.info("drop chances of each example is: {}".format(reject_scores.data.cpu().numpy().tolist()))
+
+            try:
+                assert output.size(0) == y.size(0)
+            except:
+                logging.info("number of examples dropped on eval set is {}".format(drop_rate))
+                logging.info("drop chances of each example is: {}".format(reject_scores.data.cpu().numpy().tolist()))
+                pdb.set_trace()
 
             scores = output_to_prob(output).data.cpu().numpy()
             preds = output_to_preds(output)
