@@ -913,7 +913,7 @@ def train_module(model, optimizer,
                 exp_cost = 0.99 * exp_cost + 0.01 * loss.data[0]
 
             if iter % 100 == 0:
-                avg_rej_rate = sum(training_rejectiong_rate) / float(len(training_rejectiong_rate))
+                avg_rej_rate = sum(training_rejectiong_rate) / float(max(len(training_rejectiong_rate), 1))
 
                 logging.info(
                     "iter {} lr={} train_loss={} exp_cost={} rej={} \n".format(iter, optimizer.param_groups[0]['lr'],
