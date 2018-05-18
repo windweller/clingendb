@@ -382,7 +382,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False, allow_reject=
     if not args.mc_dropout:
         model.eval()
 
-    criterion = BCEWithLogitsLoss()
+    criterion = BCEWithLogitsLoss(reduce=False)
     correct = 0.0
     cnt = 0
     total_loss = 0.0
@@ -410,6 +410,8 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False, allow_reject=
         batched_x_list = []
         batched_y_list = []
         batched_y_hat_list = []
+        batched_loss_list = []
+        # TODO: or we can directly save the loss...but it's fine..
 
     iter = 0
     for data in valid_iter:
@@ -443,15 +445,15 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False, allow_reject=
             # tau = l ** 2 * (1 - model.p) / (2 * N * model.weight_decay)
             # predictive_variance += tau ** -1
 
+        batch_size = x.size(1)
+
+        loss = criterion(output, y)
+
         if args.save_all and is_test:
             batched_x_list.append(final_rep.data.cpu().numpy().tolist())
             batched_y_list.append(y.data.cpu().numpy().tolist())
             batched_y_hat_list.append(output.data.cpu().numpy().tolist())
-
-        batch_size = x.size(1)
-
-        loss = criterion(output, y)
-        total_loss += loss.data[0] * x.size(1)
+            batched_loss_list.append(loss.data.cpu().numpy().tolist())
 
         if not args.mc_dropout:
             # this is the dropping out y and output part
@@ -565,7 +567,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False, allow_reject=
     if args.save_all and is_test:
         logging.info("saving all training data into files")
         with open(pjoin(args.run_dir, 'test_data.json'), 'wb') as f:
-            json.dump([batched_x_list, batched_y_list, batched_y_hat_list], f)
+            json.dump([batched_x_list, batched_y_list, batched_y_hat_list, batched_loss_list], f)
 
     return correct / cnt
 
@@ -766,6 +768,7 @@ def train_module(model, optimizer,
         batched_x_list = []
         batched_y_list = []
         batched_y_hat_list = []
+        batched_loss_list = []
 
     for n in range(max_epoch):
         iter = 0
@@ -946,6 +949,11 @@ def train_module(model, optimizer,
                 else:
                     loss = loss.mean(dim=1)
 
+            if args.save_all and not train_reject_only and epoch == max_epoch:
+                # reject flag needs to be turned off, otherwise the loss is not the true label loss
+                # loss: (batched, 1)
+                batched_loss_list.append(loss.data.cpu().numpy().tolist())
+
             loss = loss.mean()
             loss.backward()
 
@@ -993,7 +1001,7 @@ def train_module(model, optimizer,
     if args.save_all:
         logging.info("saving all training data into files")
         with open(pjoin(args.run_dir, 'train_data.json'), 'wb') as f:
-            json.dump([batched_x_list, batched_y_list, batched_y_hat_list], f)
+            json.dump([batched_x_list, batched_y_list, batched_y_hat_list, batched_loss_list], f)
 
 
 def init_emb(vocab, init="randn", num_special_toks=2):
@@ -1132,7 +1140,7 @@ if __name__ == '__main__':
         train_module(model, optimizer, train_iter, val_iter,
                      max_epoch=args.reject_epoch, train_reject_only=True)
 
-    test_accu = eval_model(model, test_iter, save_pred=True, save_viz=False, allow_reject=args.reject)
+    test_accu = eval_model(model, test_iter, save_pred=True, save_viz=False, allow_reject=args.reject, is_test=True)
     logger.info("final test accu: {}".format(test_accu))
 
     adobe_accu = eval_adobe(model, adobe_test_iter, save_pred=True, save_viz=False, allow_reject=args.reject)
