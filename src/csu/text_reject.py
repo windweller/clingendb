@@ -1057,6 +1057,7 @@ if __name__ == '__main__':
 
     if torch.cuda.is_available():
         model.cuda(args.gpu)
+        reject_model.cuda(args.gpu)
 
     sys.stdout.write("num of parameters: {}\n".format(
         sum(x.numel() for x in model.parameters() if x.requires_grad)
