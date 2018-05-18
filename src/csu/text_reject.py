@@ -181,9 +181,9 @@ class Reject_Model(nn.Module):
         if args.rej_complex:
             self.reject_model = nn.Sequential(
                 nn.Linear(reject_dim, int(reject_dim / 2.)),
-                nn.SELU,
+                nn.SELU(),
                 nn.Linear(int(reject_dim / 2.), int(reject_dim / 4.)),
-                nn.SELU,
+                nn.SELU(),
                 nn.Linear(int(reject_dim / 4.), 1),
                 nn.Sigmoid()
             )
