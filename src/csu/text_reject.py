@@ -31,6 +31,7 @@ from torch.autograd import Variable
 from torchtext import data
 
 from sklearn import metrics
+import pickle
 
 from util import MultiLabelField, ReversibleField, BCEWithLogitsLoss, MultiMarginHierarchyLoss
 
@@ -77,6 +78,7 @@ argparser.add_argument("--gamma", type=float, default=5., help="default rejectio
 argparser.add_argument("--fix_lstm", action="store_true",
                        help="use jointly with --reject_delay 5, we only do second stage update")
 argparser.add_argument("--reject_epoch", type=int, default=2, help="how many epochs you'll train rejection module")
+argparser.add_argument("--save_all", action="store_true", help="this will save on both train and test; TODO: add adobe saving")
 
 argparser.add_argument("--l2_penalty_softmax", type=float, default=0., help="add L2 penalty on softmax weight matrices")
 argparser.add_argument("--l2_str", type=float, default=0, help="a scalar that reduces strength")  # 1e-3
@@ -361,7 +363,7 @@ def spread_by_meta_y(y, indices):
     return y
 
 
-def eval_model(model, valid_iter, save_pred=False, save_viz=False, allow_reject=False):
+def eval_model(model, valid_iter, save_pred=False, save_viz=False, allow_reject=False, is_test=False):
     # when test_final is true, we save predictions
     if not args.mc_dropout:
         model.eval()
@@ -385,12 +387,15 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False, allow_reject=
     all_meta_y_labels = []
 
     all_uncertainty = []
-
     all_hidden_states = []
 
-    # all_credit_assign = []
-    # all_la_global = []
-    # all_la_local = []
+    # we are not saving validation data
+    # because we don't care about them enough...
+    if args.save_all and is_test:
+        # list of numpy (easy to turn into PyTorch Tensors)
+        batched_x_list = []
+        batched_y_list = []
+        batched_y_hat_list = []
 
     iter = 0
     for data in valid_iter:
@@ -423,6 +428,11 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False, allow_reject=
             # Note that we are NOT computing tau; this value is rather small
             # tau = l ** 2 * (1 - model.p) / (2 * N * model.weight_decay)
             # predictive_variance += tau ** -1
+
+        if args.save_all and is_test:
+            batched_x_list.append(final_rep.data.cpu().numpy().tolist())
+            batched_y_list.append(y.data.cpu().numpy().tolist())
+            batched_y_hat_list.append(output.data.cpu().numpy().tolist())
 
         batch_size = x.size(1)
 
@@ -537,6 +547,11 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False, allow_reject=
 
         with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
             json.dump(labels, f)
+
+    if args.save_all and is_test:
+        logging.info("saving all training data into files")
+        with open(pjoin(args.run_dir, 'test_data.json'), 'wb') as f:
+            json.dump([batched_x_list, batched_y_list, batched_y_hat_list], f)
 
     return correct / cnt
 
@@ -732,6 +747,12 @@ def train_module(model, optimizer,
 
     softmax_weight = model.get_softmax_weight()
 
+    if args.save_all:
+        # list of numpy (easy to turn into PyTorch Tensors)
+        batched_x_list = []
+        batched_y_list = []
+        batched_y_hat_list = []
+
     for n in range(max_epoch):
         iter = 0
         for data in train_iter:
@@ -748,6 +769,14 @@ def train_module(model, optimizer,
                 output = model.get_logits(output_vec)
             else:
                 output = model(x, x_lengths)
+
+            # we don't want to save anything for reject training phase
+            # need to re-assemble these back to numpy then pytorch
+            # only save it on the last epoch
+            if args.save_all and not train_reject_only and epoch == max_epoch:
+                batched_x_list.append(final_rep.data.cpu().numpy().tolist())
+                batched_y_list.append(y.data.cpu().numpy().tolist())
+                batched_y_hat_list.append(output.data.cpu().numpy().tolist())
 
             # in here we create a branch that focuses on rejection model
             # and will optimize its parameters
@@ -933,7 +962,7 @@ def train_module(model, optimizer,
         # otherwise we allow reject after the delay
         allow_reject = True if train_reject_only else epoch > args.reject_delay
 
-        valid_accu = eval_model(model, valid_iter, allow_reject=allow_reject)
+        valid_accu = eval_model(model, valid_iter, allow_reject=allow_reject, is_test=False)
         sys.stdout.write("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
             epoch,
             optimizer.param_groups[0]['lr'],
@@ -946,6 +975,12 @@ def train_module(model, optimizer,
 
         sys.stdout.write("\n")
         epoch += 1
+
+    if args.save_all:
+        logging.info("saving all training data into files")
+        with open(pjoin(args.run_dir, 'train_data.json'), 'wb') as f:
+            json.dump([batched_x_list, batched_y_list, batched_y_hat_list], f)
+
 
 def init_emb(vocab, init="randn", num_special_toks=2):
     # we can try randn or glorot
