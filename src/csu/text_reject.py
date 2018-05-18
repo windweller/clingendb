@@ -61,15 +61,22 @@ argparser.add_argument("--load_model", action="store_true", help="load model acc
 argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
 argparser.add_argument("--emb_update", action="store_true", help="update embedding")
 argparser.add_argument("--mc_dropout", action="store_true", help="use variational dropout at inference time")
-argparser.add_argument("--dice_loss", action="store_true", help="use Dice loss to solve class imbalance, currently only implemented without extra penalty")
+argparser.add_argument("--dice_loss", action="store_true",
+                       help="use Dice loss to solve class imbalance, currently only implemented without extra penalty")
 argparser.add_argument("--bidir", action="store_true", help="use bidirectional ")
+argparser.add_argument("--abbr", action="store_true", help="use abbr mapped adobe files ")
 
 argparser.add_argument("--reject", action="store_true", help="learn to reject")
 argparser.add_argument("--reject_output", action="store_true", help="learn to reject by logit")
 argparser.add_argument("--reject_hidden", action="store_true", help="learn to reject by hidden rep")
-argparser.add_argument("--reject_delay", type=int, default=0, help="delay optimizing for rejection loss after certain epoch")
-argparser.add_argument("--reject_anneal", type=float, default=1., help="at end of each epoch, we halve the rejection rate")
+argparser.add_argument("--reject_delay", type=int, default=0,
+                       help="delay optimizing for rejection loss after certain epoch")
+argparser.add_argument("--reject_anneal", type=float, default=1.,
+                       help="at end of each epoch, we halve the rejection rate")
 argparser.add_argument("--gamma", type=float, default=5., help="default rejection cost")
+argparser.add_argument("--fix_lstm", action="store_true",
+                       help="use jointly with --reject_delay 5, we only do second stage update")
+argparser.add_argument("--reject_epoch", type=int, default=2, help="how many epochs you'll train rejection module")
 
 argparser.add_argument("--l2_penalty_softmax", type=float, default=0., help="add L2 penalty on softmax weight matrices")
 argparser.add_argument("--l2_str", type=float, default=0, help="a scalar that reduces strength")  # 1e-3
@@ -156,6 +163,23 @@ def move_to_cuda(th_var):
         return th_var.cuda()
     else:
         return th_var
+
+
+class Reject_Model(nn.Module):
+    def __init__(self, hidden_size, nclasses):
+        super(Reject_Model, self).__init__()
+        d_out = hidden_size if not args.bidir else hidden_size * 2
+        self.d_out = d_out
+        reject_dim = nclasses if args.reject_output else d_out
+
+        self.reject_model = nn.Sequential(
+            nn.Linear(reject_dim, 1),
+            nn.Sigmoid()
+        )
+
+    def reject(self, x):
+        # x: (batch_size, rej_dim)
+        return self.reject_model(x)
 
 
 class Model(nn.Module):
@@ -262,6 +286,7 @@ class Model(nn.Module):
 
         return normed_contrib_map
 
+
 def preds_to_sparse_matrix(indices, batch_size, label_size):
     # this is for preds
     # indices will be a list: [[0, 0, 0], [0, 0, 1], ...]
@@ -312,6 +337,7 @@ def generate_meta_y(indices, meta_label_size, batch_size):
 
     return a
 
+
 # TODO: this might be wrong. Because if prototype constraints work, this should work as well
 def spread_by_meta_y(y, indices):
     # indices are still those where y labels exist
@@ -359,6 +385,8 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     all_meta_y_labels = []
 
     all_uncertainty = []
+
+    all_hidden_states = []
 
     # all_credit_assign = []
     # all_la_global = []
@@ -421,8 +449,8 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
                 new_output = []
                 for i, d_c in enumerate(drop_choices_list):
                     if d_c == 0.:
-                        new_y.append(y[i,:])
-                        new_output.append(output[i,:])
+                        new_y.append(y[i, :])
+                        new_output.append(output[i, :])
 
                 if len(new_y) == 0:
                     logging.info("rejected all examples")
@@ -436,6 +464,10 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
 
             scores = output_to_prob(output).data.cpu().numpy()
             preds = output_to_preds(output)
+
+            hidden_s = final_rep.data.cpu().numpy()  # (batch_size, hid_dim)
+            all_hidden_states.append(hidden_s)
+
         else:
             pt_output_mean = torch.from_numpy(output_mean)
             scores = output_to_prob(pt_output_mean).cpu().numpy()
@@ -490,7 +522,8 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
 
         with open(pjoin(args.run_dir, 'label_vis_map.json'), 'wb') as f:
             # used to be : all_condensed_preds, all_condensed_ys, all_scores, all_print_y_labels
-            json.dump([all_condensed_preds, all_condensed_ys, all_scores, all_uncertainty, all_print_y_labels, all_orig_texts], f)
+            json.dump([all_condensed_preds, all_condensed_ys, all_scores, all_uncertainty, all_print_y_labels,
+                       all_orig_texts], f)
 
         with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
             json.dump(labels, f)
@@ -506,6 +539,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
             json.dump(labels, f)
 
     return correct / cnt
+
 
 def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False):
     # when test_final is true, we save predictions
@@ -601,8 +635,8 @@ def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False):
                 new_output = []
                 for i, d_c in enumerate(drop_choices_list):
                     if d_c == 0.:
-                        new_y.append(y[i,:])
-                        new_output.append(output[i,:])
+                        new_y.append(y[i, :])
+                        new_output.append(output[i, :])
                 y = torch.stack(new_y, dim=0)
                 output = torch.stack(new_output, dim=0)
 
@@ -664,7 +698,8 @@ def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False):
         # we also need
         with open(pjoin(args.run_dir, 'adobe_label_vis_map.json'), 'wb') as f:
             # used to be : all_condensed_preds, all_condensed_ys, all_scores, all_print_y_labels
-            json.dump([all_condensed_preds, all_condensed_ys, all_scores, all_uncertainty, all_print_y_labels, all_orig_texts], f)
+            json.dump([all_condensed_preds, all_condensed_ys, all_scores, all_uncertainty, all_print_y_labels,
+                       all_orig_texts], f)
 
     if save_viz:
         with open(pjoin(args.run_dir, 'adobe_label_vis_map.json'), 'wb') as f:
@@ -677,8 +712,14 @@ prob_threshold = nn.Threshold(1e-5, 0)
 
 
 def train_module(model, optimizer,
-                 train_iter, valid_iter, max_epoch):
+                 train_iter, valid_iter, max_epoch, train_reject=False):
+    # train_reject is only used if we are doing two-stage
+
     model.train()
+
+    if train_reject:
+        model.eval()  # we only evaluate the model, no update
+
     criterion = BCEWithLogitsLoss(reduce=False)
 
     exp_cost = None
@@ -697,6 +738,8 @@ def train_module(model, optimizer,
             iter += 1
 
             model.zero_grad()
+            reject_model.zero_grad()
+
             (x, x_lengths), y = data.Text, data.Description
 
             if args.reject:
@@ -705,6 +748,52 @@ def train_module(model, optimizer,
                 output = model.get_logits(output_vec)
             else:
                 output = model(x, x_lengths)
+
+            # in here we create a branch that focuses on rejection model
+            # and will optimize its parameters
+            if train_reject:
+                if args.reject_output:
+                    s = torch.squeeze(reject_model.reject(output.detach()))  # (batch_size)
+
+                    # per example loss; average across all labels
+                    loss = (1 - s) * loss.mean(dim=1) + s * args.gamma
+                    # collect average rejection size
+                    training_rejectiong_rate.append(s.mean().data[0])
+                elif args.reject_hidden:
+                    s = torch.squeeze(reject_model.reject(final_rep.detach()))  # (batch_size)
+
+                    # per example loss; average across all labels
+                    loss = (1 - s) * loss.mean(dim=1) + s * args.gamma
+                    # collect average rejection size
+                    training_rejectiong_rate.append(s.mean().data[0])
+
+                loss = loss.mean()
+                loss.backward()
+
+                torch.nn.utils.clip_grad_norm(reject_model.parameters(), args.clip_grad)
+
+                rej_optimizer.step()
+
+                if not exp_cost:
+                    exp_cost = loss.data[0]
+                else:
+                    exp_cost = 0.99 * exp_cost + 0.01 * loss.data[0]
+
+                if iter % 100 == 0:
+                    avg_rej_rate = sum(training_rejectiong_rate) / float(len(training_rejectiong_rate))
+
+                    logging.info(
+                        "iter {} lr={} train_loss={} exp_cost={} rej={} \n".format(iter,
+                                                                                   optimizer.param_groups[0]['lr'],
+                                                                                   loss.data[0], exp_cost,
+                                                                                   avg_rej_rate))
+
+                    logging.info(
+                        "per-example loss/rej: {}".format(zip(per_example_loss, s.data.cpu().numpy().tolist())))
+
+                epoch += 1
+                # this is one batch, after iterating all batches, will output validation
+                continue
 
             if args.prototype:
                 loss = criterion(output, y)
@@ -795,14 +884,14 @@ def train_module(model, optimizer,
                 if epoch > args.reject_delay:
                     # detach the input because we don't want loss backprop into the representation
                     if args.reject_output:
-                        s = torch.squeeze(model.reject_model(output.detach()))  # (batch_size)
+                        s = torch.squeeze(reject_model.reject(output.detach()))  # (batch_size)
 
                         # per example loss; average across all labels
                         loss = (1 - s) * loss.mean(dim=1) + s * args.gamma
                         # collect average rejection size
                         training_rejectiong_rate.append(s.mean().data[0])
                     elif args.reject_hidden:
-                        s = torch.squeeze(model.reject_model(final_rep.detach()))  # (batch_size)
+                        s = torch.squeeze(reject_model.reject(final_rep.detach()))  # (batch_size)
 
                         # per example loss; average across all labels
                         loss = (1 - s) * loss.mean(dim=1) + s * args.gamma
@@ -826,8 +915,9 @@ def train_module(model, optimizer,
             if iter % 100 == 0:
                 avg_rej_rate = sum(training_rejectiong_rate) / float(len(training_rejectiong_rate))
 
-                logging.info("iter {} lr={} train_loss={} exp_cost={} rej={} \n".format(iter, optimizer.param_groups[0]['lr'],
-                                                                                 loss.data[0], exp_cost, avg_rej_rate))
+                logging.info(
+                    "iter {} lr={} train_loss={} exp_cost={} rej={} \n".format(iter, optimizer.param_groups[0]['lr'],
+                                                                               loss.data[0], exp_cost, avg_rej_rate))
 
                 logging.info("per-example loss/rej: {}".format(zip(per_example_loss, s.data.cpu().numpy().tolist())))
 
@@ -848,7 +938,6 @@ def train_module(model, optimizer,
 
         sys.stdout.write("\n")
         epoch += 1
-
 
 def init_emb(vocab, init="randn", num_special_toks=2):
     # we can try randn or glorot
@@ -913,9 +1002,14 @@ if __name__ == '__main__':
     LABEL = MultiLabelField(sequential=True, use_vocab=False, label_size=label_size, tensor_type=torch.FloatTensor)
 
     # load in adobe
-    adobe_test = data.TabularDataset(path='../../data/csu/adobe_snomed_multi_label_no_des_test.tsv',
-                                     format='tsv',
-                                     fields=[('Text', TEXT), ('Description', LABEL)])
+    if args.abbr:
+        adobe_test = data.TabularDataset(path='../../data/csu/adobe_abbr_matched_snomed_multi_label_no_des_test.tsv',
+                                         format='tsv',
+                                         fields=[('Text', TEXT), ('Description', LABEL)])
+    else:
+        adobe_test = data.TabularDataset(path='../../data/csu/adobe_snomed_multi_label_no_des_test.tsv',
+                                         format='tsv',
+                                         fields=[('Text', TEXT), ('Description', LABEL)])
 
     if args.dataset == 'multi_top_snomed_no_des':
         train, val, test = data.TabularDataset.splits(
@@ -950,9 +1044,11 @@ if __name__ == '__main__':
 
     if args.load_model:
         model = torch.load(pjoin(args.run_dir, 'model.pickle'))
+        reject_model = torch.load(pjoin(args.run_dir, 'reject_model.pickle'))
     else:
         model = Model(vocab, nclasses=len(labels), emb_dim=args.emb_dim,
                       hidden_size=args.d, depth=args.depth)
+        reject_model = Reject_Model(args.d, nclasses=len(labels))
 
     if torch.cuda.is_available():
         model.cuda(args.gpu)
@@ -967,8 +1063,16 @@ if __name__ == '__main__':
             filter(need_grad, model.parameters()),
             lr=0.001, weight_decay=args.l2_str)
 
+        rej_optimizer = optim.Adam(filter(need_grad, reject_model.parameters()),
+                                   lr=0.001, weight_decay=args.l2_str)
+
         train_module(model, optimizer, train_iter, val_iter,
                      max_epoch=args.max_epoch)
+
+    if args.fix_lstm and not args.load_model:
+        logging.info("starting to train rejection module")
+        train_module(model, optimizer, train_iter, val_iter,
+                     max_epoch=args.reject_epoch, train_reject=True)
 
     test_accu = eval_model(model, test_iter, save_pred=True, save_viz=False)
     logger.info("final test accu: {}".format(test_accu))
