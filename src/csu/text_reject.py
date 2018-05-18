@@ -919,7 +919,8 @@ def train_module(model, optimizer,
                     "iter {} lr={} train_loss={} exp_cost={} rej={} \n".format(iter, optimizer.param_groups[0]['lr'],
                                                                                loss.data[0], exp_cost, avg_rej_rate))
 
-                logging.info("per-example loss/rej: {}".format(zip(per_example_loss, s.data.cpu().numpy().tolist())))
+                if epoch > args.reject_delay:
+                    logging.info("per-example loss/rej: {}".format(zip(per_example_loss, s.data.cpu().numpy().tolist())))
 
         if epoch > args.reject_delay:
             args.gamma = args.reject_anneal * args.gamma
