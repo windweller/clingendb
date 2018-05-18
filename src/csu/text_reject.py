@@ -454,7 +454,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False, allow_reject=
 
                 if len(new_y) == 0:
                     logging.info("rejected all examples")
-                    return
+                    return 0.
 
                 y = torch.stack(new_y, dim=0)
                 output = torch.stack(new_output, dim=0)
@@ -712,12 +712,12 @@ prob_threshold = nn.Threshold(1e-5, 0)
 
 
 def train_module(model, optimizer,
-                 train_iter, valid_iter, max_epoch, train_reject=False):
+                 train_iter, valid_iter, max_epoch, train_reject_only=False):
     # train_reject is only used if we are doing two-stage
 
     model.train()
 
-    if train_reject:
+    if train_reject_only:
         model.eval()  # we only evaluate the model, no update
 
     criterion = BCEWithLogitsLoss(reduce=False)
@@ -751,7 +751,7 @@ def train_module(model, optimizer,
 
             # in here we create a branch that focuses on rejection model
             # and will optimize its parameters
-            if train_reject:
+            if train_reject_only:
                 loss = criterion(output, y)
                 per_example_loss = loss.mean(dim=1).data.cpu().numpy().tolist()
 
@@ -931,7 +931,7 @@ def train_module(model, optimizer,
 
         # if we follow train_reject path, we evaluate with rejection
         # otherwise we allow reject after the delay
-        allow_reject = True if train_reject else epoch > args.reject_delay
+        allow_reject = True if train_reject_only else epoch > args.reject_delay
 
         valid_accu = eval_model(model, valid_iter, allow_reject=allow_reject)
         sys.stdout.write("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
@@ -1081,7 +1081,7 @@ if __name__ == '__main__':
     if args.fix_lstm and not args.load_model:
         logging.info("starting to train rejection module")
         train_module(model, optimizer, train_iter, val_iter,
-                     max_epoch=args.reject_epoch, train_reject=True)
+                     max_epoch=args.reject_epoch, train_reject_only=True)
 
     test_accu = eval_model(model, test_iter, save_pred=True, save_viz=False, allow_reject=args.reject)
     logger.info("final test accu: {}".format(test_accu))
