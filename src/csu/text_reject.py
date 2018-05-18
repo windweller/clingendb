@@ -184,7 +184,7 @@ class Reject_Model(nn.Module):
                 nn.SELU,
                 nn.Linear(int(reject_dim / 2.), int(reject_dim / 4.)),
                 nn.SELU,
-                nn.Linear(int(reject_dim / 4.), 1.),
+                nn.Linear(int(reject_dim / 4.), 1),
                 nn.Sigmoid()
             )
         else:
