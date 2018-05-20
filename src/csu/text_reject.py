@@ -613,6 +613,13 @@ def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False, allow_reject=
     # all_la_global = []
     # all_la_local = []
 
+    if args.save_all:
+        # list of numpy (easy to turn into PyTorch Tensors)
+        batched_x_list = []
+        batched_y_list = []
+        batched_y_hat_list = []
+        batched_loss_list = []
+
     logger.info("Evaluating on Adobe dataset")
 
     iter = 0
@@ -658,6 +665,12 @@ def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False, allow_reject=
 
         loss = criterion(output, y)
         total_loss += loss.data[0] * x.size(1)
+
+        if args.save_all:
+            batched_x_list.append(final_rep.data.cpu().numpy().tolist())
+            batched_y_list.append(y.data.cpu().numpy().tolist())
+            batched_y_hat_list.append(output.data.cpu().numpy().tolist())
+            batched_loss_list.append(loss.data.cpu().numpy().tolist())
 
         if not args.mc_dropout:
             if args.reject and allow_reject:
@@ -747,6 +760,11 @@ def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False, allow_reject=
     if save_viz:
         with open(pjoin(args.run_dir, 'adobe_label_vis_map.json'), 'wb') as f:
             json.dump([all_condensed_preds, all_condensed_ys, all_orig_texts, all_text_vis], f)
+
+    if args.save_all:
+        logging.info("saving all training data into files")
+        with open(pjoin(args.run_dir, 'adobe_data.json'), 'wb') as f:
+            json.dump([batched_x_list, batched_y_list, batched_y_hat_list, batched_loss_list], f)
 
     return correct / cnt
 
@@ -960,6 +978,7 @@ def train_module(model, optimizer,
             loss.backward()
 
             torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
+            torch.nn.utils.clip_grad_norm(reject_model.parameters(), args.clip_grad)
 
             optimizer.step()
 
