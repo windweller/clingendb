@@ -60,6 +60,8 @@ argparser.add_argument("--mc_dropout", action="store_true", help="use variationa
 argparser.add_argument("--dice_loss", action="store_true", help="use Dice loss to solve class imbalance, currently only implemented without extra penalty")
 argparser.add_argument("--bidir", action="store_true", help="use bidirectional ")
 argparser.add_argument("--abbr", action="store_true", help="use abbr mapped adobe files ")
+argparser.add_argument("--save_all", action="store_true", help="this will save on both train and test; TODO: add adobe saving")
+# can consider building Adobe vocab jointly with CSU, but beyond GloVE, would have to load
 
 argparser.add_argument("--l2_penalty_softmax", type=float, default=0., help="add L2 penalty on softmax weight matrices")
 argparser.add_argument("--l2_str", type=float, default=0, help="a scalar that reduces strength")  # 1e-3
@@ -312,7 +314,7 @@ def spread_by_meta_y(y, indices):
     return y
 
 
-def eval_model(model, valid_iter, save_pred=False, save_viz=False):
+def eval_model(model, valid_iter, save_pred=False, save_viz=False, is_test=False):
     # when test_final is true, we save predictions
     if not args.mc_dropout:
         model.eval()
@@ -320,7 +322,6 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     criterion = BCEWithLogitsLoss()
     correct = 0.0
     cnt = 0
-    total_loss = 0.0
 
     all_scores = []  # probability to measure uncertainty
     all_preds = []
@@ -341,6 +342,13 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
     # all_la_global = []
     # all_la_local = []
 
+    if args.save_all and is_test:
+        # list of numpy (easy to turn into PyTorch Tensors)
+        batched_x_list = []
+        batched_y_list = []
+        batched_y_hat_list = []
+        batched_loss_list = []
+
     iter = 0
     for data in valid_iter:
         (x, x_lengths), y = data.Text, data.Description
@@ -350,10 +358,11 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
             logger.info("at iteration {}".format(iter))
 
         if not args.mc_dropout:
-            output = model(x, x_lengths)  # this is logits, not sent to sigmoid yet!
+            output_vecs = model.get_vectors(x, x_lengths)
+            final_rep = torch.max(output_vecs, 0)[0].squeeze(0)
+            output = model.get_logits(output_vecs)  # this is logits, not sent to sigmoid yet!
         else:
             # [(batch_size, class_scores) * 10]
-            # probs = []
             outputs = []
             # run 10 times per batch to get mc estimation
             for _ in xrange(10):
@@ -382,7 +391,12 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
         batch_size = x.size(1)
 
         loss = criterion(output, y)
-        total_loss += loss.data[0] * x.size(1)
+
+        if args.save_all and is_test:
+            batched_x_list.append(final_rep.data.cpu().numpy().tolist())
+            batched_y_list.append(y.data.cpu().numpy().tolist())
+            batched_y_hat_list.append(output.data.cpu().numpy().tolist())
+            batched_loss_list.append(loss.data.cpu().numpy().tolist())
 
         if not args.mc_dropout:
             scores = output_to_prob(output).data.cpu().numpy()
@@ -412,7 +426,6 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
         # meta_y = generate_meta_y(y_indices.data.cpu().numpy().tolist(), meta_label_size, batch_size)
         # meta-level prediction needs additional code
 
-        # TODO: this is possibly incorrect?...not that we are using accuracy...
         correct += metrics.accuracy_score(y.data.cpu().numpy(), sparse_preds)
         cnt += 1
 
@@ -457,6 +470,11 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False):
         with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
             json.dump(labels, f)
 
+    if args.save_all:
+        logging.info("saving all training data into files")
+        with open(pjoin(args.run_dir, 'test_data.json'), 'wb') as f:
+            json.dump([batched_x_list, batched_y_list, batched_y_hat_list, batched_loss_list], f)
+
     model.train()
     return correct / cnt
 
@@ -468,7 +486,6 @@ def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False):
     criterion = BCEWithLogitsLoss()
     correct = 0.0
     cnt = 0
-    total_loss = 0.0
 
     all_scores = []  # probability to measure uncertainty
     all_preds = []
@@ -489,6 +506,13 @@ def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False):
     # all_la_global = []
     # all_la_local = []
 
+    if args.save_all:
+        # list of numpy (easy to turn into PyTorch Tensors)
+        batched_x_list = []
+        batched_y_list = []
+        batched_y_hat_list = []
+        batched_loss_list = []
+
     logger.info("Evaluating on Adobe dataset")
 
     iter = 0
@@ -501,6 +525,7 @@ def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False):
 
         if not args.mc_dropout:
             output_vecs = model.get_vectors(x, x_lengths)
+            final_rep = torch.max(output_vecs, 0)[0].squeeze(0)
             output = model.get_logits(output_vecs)  # this is logits, not sent to sigmoid yet!
         else:
             # [(batch_size, class_scores) * 10]
@@ -532,7 +557,12 @@ def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False):
         batch_size = x.size(1)
 
         loss = criterion(output, y)
-        total_loss += loss.data[0] * x.size(1)
+
+        if args.save_all:
+            batched_x_list.append(final_rep.data.cpu().numpy().tolist())
+            batched_y_list.append(y.data.cpu().numpy().tolist())
+            batched_y_hat_list.append(output.data.cpu().numpy().tolist())
+            batched_loss_list.append(loss.data.cpu().numpy().tolist())
 
         if not args.mc_dropout:
             scores = output_to_prob(output).data.cpu().numpy()
@@ -597,6 +627,11 @@ def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False):
         with open(pjoin(args.run_dir, 'adobe_label_vis_map.json'), 'wb') as f:
             json.dump([all_condensed_preds, all_condensed_ys, all_orig_texts, all_text_vis], f)
 
+    if args.save_all:
+        logging.info("saving all training data into files")
+        with open(pjoin(args.run_dir, 'adobe_data.json'), 'wb') as f:
+            json.dump([batched_x_list, batched_y_list, batched_y_hat_list, batched_loss_list], f)
+
     return correct / cnt
 
 
@@ -619,6 +654,13 @@ def train_module(model, optimizer,
 
     softmax_weight = model.get_softmax_weight()
 
+    if args.save_all:
+        # list of numpy (easy to turn into PyTorch Tensors)
+        batched_x_list = []
+        batched_y_list = []
+        batched_y_hat_list = []
+        batched_loss_list = []
+
     for n in range(max_epoch):
         for data in train_iter:
             iter += 1
@@ -626,7 +668,14 @@ def train_module(model, optimizer,
             model.zero_grad()
             (x, x_lengths), y = data.Text, data.Description
 
-            output = model(x, x_lengths)  # this is just logit (before calling sigmoid)
+            output_vec = model.get_vectors(x, x_lengths)  # this is just logit (before calling sigmoid)
+            final_rep = torch.max(output_vec, 0)[0].squeeze(0)
+            output = model.get_logits(output_vec)
+
+            if args.save_all and epoch == max_epoch:
+                batched_x_list.append(final_rep.data.cpu().numpy().tolist())
+                batched_y_list.append(y.data.cpu().numpy().tolist())
+                batched_y_hat_list.append(output.data.cpu().numpy().tolist())
 
             if args.prototype:
                 loss = criterion(output, y)
@@ -723,6 +772,10 @@ def train_module(model, optimizer,
                 loss = criterion(output, new_y).mean()
                 loss.backward()
 
+            if args.save_all and epoch == max_epoch:
+                # loss: (batched, 1)
+                batched_loss_list.append(loss.data.cpu().numpy().tolist())
+
             elif args.max_margin:
                 pass
                 # nn.MultiMarginLoss
@@ -760,6 +813,11 @@ def train_module(model, optimizer,
 
         sys.stdout.write("\n")
         epoch += 1
+
+    if args.save_all:
+        logging.info("saving all training data into files")
+        with open(pjoin(args.run_dir, 'train_data.json'), 'wb') as f:
+            json.dump([batched_x_list, batched_y_list, batched_y_hat_list, batched_loss_list], f)
 
 
 def init_emb(vocab, init="randn", num_special_toks=2):
