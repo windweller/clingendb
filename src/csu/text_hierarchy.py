@@ -470,7 +470,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False, is_test=False
         with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
             json.dump(labels, f)
 
-    if args.save_all:
+    if args.save_all and is_test:
         logging.info("saving all testing data into files")
         with open(pjoin(args.run_dir, 'test_data.json'), 'wb') as f:
             json.dump([batched_x_list, batched_y_list, batched_y_hat_list, batched_loss_list], f)
