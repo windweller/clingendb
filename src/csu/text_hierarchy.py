@@ -471,7 +471,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False, is_test=False
             json.dump(labels, f)
 
     if args.save_all:
-        logging.info("saving all training data into files")
+        logging.info("saving all testing data into files")
         with open(pjoin(args.run_dir, 'test_data.json'), 'wb') as f:
             json.dump([batched_x_list, batched_y_list, batched_y_hat_list, batched_loss_list], f)
 
@@ -647,7 +647,6 @@ def train_module(model, optimizer,
     # margin_criterion = MultiMarginHierarchyLoss(neighbor_maps, class_size=label_size)
 
     exp_cost = None
-    end_of_epoch = True  # False  # set true because we want immediate feedback...
     iter = 0
     best_valid = 0.
     epoch = 1
@@ -945,7 +944,7 @@ if __name__ == '__main__':
         train_module(model, optimizer, train_iter, val_iter,
                      max_epoch=args.max_epoch)
 
-    test_accu = eval_model(model, test_iter, save_pred=True, save_viz=False)
+    test_accu = eval_model(model, test_iter, save_pred=True, save_viz=False, is_test=True)
     logger.info("final test accu: {}".format(test_accu))
 
     adobe_accu = eval_adobe(model, adobe_test_iter, save_pred=True, save_viz=False)
