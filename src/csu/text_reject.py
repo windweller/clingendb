@@ -379,7 +379,8 @@ def spread_by_meta_y(y, indices):
     return y
 
 
-def eval_model(model, valid_iter, save_pred=False, save_viz=False, allow_reject=False, is_test=False):
+def eval_model(model, valid_iter, save_pred=False, save_viz=False,
+               allow_reject=False, is_test=False, save_val=False):
     # when test_final is true, we save predictions
     if not args.mc_dropout:
         model.eval()
@@ -407,7 +408,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False, allow_reject=
 
     # we are not saving validation data
     # because we don't care about them enough...
-    if args.save_all and is_test:
+    if args.save_all and (is_test or save_val):
         # list of numpy (easy to turn into PyTorch Tensors)
         batched_x_list = []
         batched_y_list = []
@@ -451,7 +452,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False, allow_reject=
 
         loss = criterion(output, y)
 
-        if args.save_all and is_test:
+        if args.save_all and (is_test or save_val):
             batched_x_list.append(final_rep.data.cpu().numpy().tolist())
             batched_y_list.append(y.data.cpu().numpy().tolist())
             batched_y_hat_list.append(output.data.cpu().numpy().tolist())
@@ -576,8 +577,13 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False, allow_reject=
         with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
             json.dump(labels, f)
 
+    if args.save_all and save_val:
+        logging.info("saving all validation data into files")
+        with open(pjoin(args.run_dir, 'valid_data.json'), 'wb') as f:
+            json.dump([batched_x_list, batched_y_list, batched_y_hat_list, batched_loss_list], f)
+
     if args.save_all and is_test:
-        logging.info("saving all training data into files")
+        logging.info("saving all testing data into files")
         with open(pjoin(args.run_dir, 'test_data.json'), 'wb') as f:
             json.dump([batched_x_list, batched_y_list, batched_y_hat_list, batched_loss_list], f)
 
@@ -1021,6 +1027,9 @@ def train_module(model, optimizer,
 
         sys.stdout.write("\n")
         epoch += 1
+
+    # at last epoch we save validation
+    eval_model(model, valid_iter, allow_reject=allow_reject, is_test=False, save_val=True)
 
     if args.save_all:
         logging.info("saving all training data into files")
