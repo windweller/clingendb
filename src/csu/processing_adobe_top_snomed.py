@@ -201,7 +201,7 @@ if __name__ == '__main__':
 
     abbr_dic = {}
 
-    with open('../../data/csu/Files_for_parsing/vet abbreviations-short.csv', 'r') as f:
+    with open('../../data/csu/Files_for_parsing/vet abbreviations-short_ashley.csv', 'r') as f:
         csv_reader = csv.reader(f)
         for columns in csv_reader:
             exp = re.sub('\(.+\)', '', columns[1])  # get rid of parentheses
