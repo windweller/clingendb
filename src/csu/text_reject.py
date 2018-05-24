@@ -116,6 +116,7 @@ VERY_NEGATIVE_NUMBER = -1e30
 """
 Seeding
 """
+random.seed(args.seed)
 torch.manual_seed(args.seed)
 np.random.seed(args.seed)
 
