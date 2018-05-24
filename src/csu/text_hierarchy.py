@@ -98,6 +98,7 @@ Seeding
 """
 torch.manual_seed(args.seed)
 np.random.seed(args.seed)
+random.seed(args.seed)
 
 use_cuda = torch.cuda.is_available()
 if use_cuda:
@@ -949,3 +950,5 @@ if __name__ == '__main__':
 
     adobe_accu = eval_adobe(model, adobe_test_iter, save_pred=True, save_viz=False)
     logger.info("final adobe accu: {}".format(adobe_accu))
+
+    metrics.f1_score()
