@@ -120,7 +120,6 @@ logger.info(args)
 
 cos_sim = nn.CosineSimilarity(dim=0)
 
-
 def dice_coeff(pred, target):
     smooth = 1.
     num = pred.size(0)
@@ -950,5 +949,3 @@ if __name__ == '__main__':
 
     adobe_accu = eval_adobe(model, adobe_test_iter, save_pred=True, save_viz=False)
     logger.info("final adobe accu: {}".format(adobe_accu))
-
-    metrics.f1_score()
