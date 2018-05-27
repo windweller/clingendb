@@ -459,6 +459,8 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False, is_test=False
     # both are only true if it's for test, this saves sysout
     logging.info("\n" + metrics.classification_report(ys, preds, digits=3))
 
+    exact_match_ratio = metrics.accuracy_score(ys, preds)
+
     if save_pred:
         # So the format for each entry is: y = [], pred = [], for all labels
         # we also need
@@ -487,7 +489,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False, is_test=False
             json.dump([batched_x_list, batched_y_list, batched_y_hat_list, batched_loss_list], f)
 
     model.train()
-    return correct / cnt
+    return exact_match_ratio
 
 
 def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False):
@@ -628,6 +630,8 @@ def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False):
     # both are only true if it's for test, this saves sysout
     logging.info("\n" + metrics.classification_report(ys, preds, digits=3))
 
+    exact_match_ratio = metrics.accuracy_score(ys, preds)
+
     if save_pred:
         # So the format for each entry is: y = [], pred = [], for all labels
         # we also need
@@ -645,7 +649,7 @@ def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False):
         with open(pjoin(args.run_dir, 'adobe_data.json'), 'wb') as f:
             json.dump([batched_x_list, batched_y_list, batched_y_hat_list, batched_loss_list], f)
 
-    return correct / cnt
+    return exact_match_ratio
 
 
 prob_threshold = nn.Threshold(1e-5, 0)
