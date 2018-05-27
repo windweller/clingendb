@@ -57,14 +57,21 @@ argparser.add_argument("--load_model", action="store_true", help="load model acc
 argparser.add_argument("--rand_unk", action="store_true", help="randomly initialize unk")
 argparser.add_argument("--emb_update", action="store_true", help="update embedding")
 argparser.add_argument("--mc_dropout", action="store_true", help="use variational dropout at inference time")
-argparser.add_argument("--dice_loss", action="store_true", help="use Dice loss to solve class imbalance, currently only implemented without extra penalty")
+argparser.add_argument("--dice_loss", action="store_true",
+                       help="use Dice loss to solve class imbalance, currently only implemented without extra penalty")
 argparser.add_argument("--bidir", action="store_true", help="use bidirectional ")
 argparser.add_argument("--abbr", action="store_true", help="use abbr mapped adobe files ")
-argparser.add_argument("--save_all", action="store_true", help="this will save on both train and test; TODO: add adobe saving")
+argparser.add_argument("--save_all", action="store_true",
+                       help="this will save on both train and test; TODO: add adobe saving")
 # can consider building Adobe vocab jointly with CSU, but beyond GloVE, would have to load
 
 argparser.add_argument("--l2_penalty_softmax", type=float, default=0., help="add L2 penalty on softmax weight matrices")
 argparser.add_argument("--l2_str", type=float, default=0, help="a scalar that reduces strength")  # 1e-3
+
+argparser.add_argument("--cluster", action="store_true", help="use hierarchical loss")
+argparser.add_argument("--sigma_M", type=float, default=0, help="L2 norms of the weight vectors")  # 1e-3
+argparser.add_argument("--sigma_B", type=float, default=0, help="the distance between cluster vectors")  # 1e-3
+argparser.add_argument("--sigma_W", type=float, default=0, help="the distance within cluster vectors")  # 1e-3
 
 argparser.add_argument("--prototype", action="store_true", help="use hierarchical loss")
 argparser.add_argument("--softmax_hier", action="store_true", help="use hierarchical loss")
@@ -119,6 +126,7 @@ logging.getLogger().addHandler(file_handler)
 logger.info(args)
 
 cos_sim = nn.CosineSimilarity(dim=0)
+
 
 def dice_coeff(pred, target):
     smooth = 1.
@@ -241,6 +249,7 @@ class Model(nn.Module):
 
         return normed_contrib_map
 
+
 def preds_to_sparse_matrix(indices, batch_size, label_size):
     # this is for preds
     # indices will be a list: [[0, 0, 0], [0, 0, 1], ...]
@@ -290,6 +299,7 @@ def generate_meta_y(indices, meta_label_size, batch_size):
     assert np.sum(a <= 1) == a.size
 
     return a
+
 
 # TODO: this might be wrong. Because if prototype constraints work, this should work as well
 def spread_by_meta_y(y, indices):
@@ -455,7 +465,8 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False, is_test=False
 
         with open(pjoin(args.run_dir, 'label_vis_map.json'), 'wb') as f:
             # used to be : all_condensed_preds, all_condensed_ys, all_scores, all_print_y_labels
-            json.dump([all_condensed_preds, all_condensed_ys, all_scores, all_uncertainty, all_print_y_labels, all_orig_texts], f)
+            json.dump([all_condensed_preds, all_condensed_ys, all_scores, all_uncertainty, all_print_y_labels,
+                       all_orig_texts], f)
 
         with open(pjoin(args.run_dir, 'label_map.txt'), 'wb') as f:
             json.dump(labels, f)
@@ -477,6 +488,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False, is_test=False
 
     model.train()
     return correct / cnt
+
 
 def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False):
     # when test_final is true, we save predictions
@@ -621,7 +633,8 @@ def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False):
         # we also need
         with open(pjoin(args.run_dir, 'adobe_label_vis_map.json'), 'wb') as f:
             # used to be : all_condensed_preds, all_condensed_ys, all_scores, all_print_y_labels
-            json.dump([all_condensed_preds, all_condensed_ys, all_scores, all_uncertainty, all_print_y_labels, all_orig_texts], f)
+            json.dump([all_condensed_preds, all_condensed_ys, all_scores, all_uncertainty, all_print_y_labels,
+                       all_orig_texts], f)
 
     if save_viz:
         with open(pjoin(args.run_dir, 'adobe_label_vis_map.json'), 'wb') as f:
@@ -716,6 +729,34 @@ def train_module(model, optimizer,
                 loss += softmax_weight.pow(2).sum() / 2 * args.l2_penalty_softmax
 
                 loss.backward()
+            elif args.cluster:
+
+                batch_size = x.size(1)
+
+                loss = criterion(output, y)
+
+                # three penalty terms:
+                # Omega_mean, Omega_between, Omega_within
+                # Omega_mean
+
+                w_bar = softmax_weight.sum(1) / label_size  # w_bar
+
+                omega_mean = softmax_weight.pow(2).sum()
+                omega_between = 0.
+                omega_within = 0.
+
+                for c in xrange(len(meta_category_groups)):
+                    m_c = len(meta_category_groups[c])
+                    w_c_bar = softmax_weight[:, meta_category_groups[c]].sum(1) / m_c
+                    omega_between += m_c * (w_c_bar - w_bar).pow(2).sum()
+                    for i in meta_category_groups[c]:
+                        # this value will be 0 for singleton group
+                        omega_within += (softmax_weight[:, i] - w_c_bar).pow(2).sum()
+
+                loss = loss.mean() + omega_mean * args.sigma_M + (omega_between * args.sigma_B +
+                                                                  omega_within * args.sigma_W) / batch_size
+                loss.backward()
+
             elif args.softmax_hier:
                 # compute loss for the higher level
                 # (Batch, n_classes)
@@ -871,6 +912,8 @@ if __name__ == '__main__':
 
     with open('../../data/csu/snomed_labels_to_name.json', 'r') as f:
         labels = json.load(f)
+
+    meta_category_groups = label_grouping.values()
 
     logger.info("available labels are: ")
     logger.info(labels)
