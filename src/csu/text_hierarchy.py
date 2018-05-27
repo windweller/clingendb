@@ -816,17 +816,6 @@ def train_module(model, optimizer,
                 # loss: (batched, 1)
                 batched_loss_list.append(loss.data.cpu().numpy().tolist())
 
-            elif args.max_margin:
-                pass
-                # nn.MultiMarginLoss
-                # margin_criterion(output, y)
-            else:
-                if args.dice_loss:
-                    loss = dice_loss(output, y)
-                else:
-                    loss = criterion(output, y).mean()
-                loss.backward()
-
             torch.nn.utils.clip_grad_norm(model.parameters(), args.clip_grad)
 
             optimizer.step()
