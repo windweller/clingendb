@@ -815,6 +815,9 @@ def train_module(model, optimizer,
 
                 loss = criterion(output, new_y).mean()
                 loss.backward()
+            else:
+                loss = criterion(output, y).mean()
+                loss.backward()
 
             if args.save_all and epoch == max_epoch:
                 # loss: (batched, 1)
