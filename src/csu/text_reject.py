@@ -554,7 +554,7 @@ def eval_model(model, valid_iter, save_pred=False, save_viz=False,
     ys = np.vstack(all_y_labels)
 
     # both are only true if it's for test, this saves sysout
-    logging.info("\n" + metrics.classification_report(ys, preds))
+    logging.info("\n" + metrics.classification_report(ys, preds, digits=3))
 
     if save_pred:
         # So the format for each entry is: y = [], pred = [], for all labels
@@ -754,7 +754,7 @@ def eval_adobe(model, adobe_iter, save_pred=False, save_viz=False, allow_reject=
     ys = np.vstack(all_y_labels)
 
     # both are only true if it's for test, this saves sysout
-    logging.info("\n" + metrics.classification_report(ys, preds))
+    logging.info("\n" + metrics.classification_report(ys, preds, digits=3))
 
     if save_pred:
         # So the format for each entry is: y = [], pred = [], for all labels
