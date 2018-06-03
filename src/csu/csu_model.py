@@ -9,6 +9,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from torch.nn.utils.rnn import pad_packed_sequence as unpack
+from torchtext import data
+from util import MultiLabelField, ReversibleField, BCEWithLogitsLoss, MultiMarginHierarchyLoss
 
 
 class Config(object):
@@ -102,3 +104,42 @@ class Classifier(nn.Module):
 
     def get_softmax_weight(self):
         return self.out.weight
+
+
+# this dataset can also take in 5-class classification
+class Dataset(object):
+    def __init__(self, path='./data/csu/',
+                 dataset_prefix='snomed_multi_label_no_des_',
+                 test_data_name='adobe_abbr_matched_snomed_multi_label_no_des_test.tsv',
+                 label_size=42):
+        TEXT = ReversibleField(sequential=True, include_lengths=True, lower=False)
+        LABEL = MultiLabelField(sequential=True, use_vocab=False, label_size=label_size, tensor_type=torch.FloatTensor)
+
+        self.train, self.val, self.test = data.TabularDataset.splits(
+            path=path, train=dataset_prefix + 'train.tsv',
+            validation=dataset_prefix + 'valid.tsv',
+            test=dataset_prefix + 'test.tsv', format='tsv',
+            fields=[('Text', TEXT), ('Description', LABEL)])
+
+        self.external_test = data.TabularDataset(path=path + test_data_name,
+                                                 format='tsv',
+                                                 fields=[('Text', TEXT), ('Description', LABEL)])
+
+    def get_iterators(self, device):
+        # only get them after knowing the device (inside trainer or evaluator)
+        train_iter, val_iter, test_iter = data.Iterator.splits(
+            (self.train, self.val, self.test), sort_key=lambda x: len(x.Text),  # no global sort, but within-batch-sort
+            batch_sizes=(32, 128, 128), device=device,
+            sort_within_batch=True, repeat=False)
+
+        return train_iter, val_iter, test_iter
+
+    def get_test_iterator(self, device):
+        external_test_iter = data.Iterator(self.external_test, 128, sort_key=lambda x: len(x.Text),
+                                           device=device, train=False, repeat=False, sort_within_batch=True)
+        return external_test_iter
+
+
+class Trainer(object):
+    def __init__(self, classifier, dataset, device):
+        pass
