@@ -295,6 +295,7 @@ class Trainer(object):
         self.save_path = save_path
 
         self.train_iter, self.val_iter, self.test_iter = self.dataset.get_iterators(device)
+        self.external_test_iter = self.dataset.get_test_iterator(device)
         self.set_random_seed()
 
         if config.m:
@@ -374,9 +375,10 @@ class Trainer(object):
         self.logger.info("compute test set performance...")
         return self.evaluate(is_test=True)
 
-    def evaluate(self, is_test=False):
+    def evaluate(self, is_test=False, is_external=False):
         self.classifier.eval()
-        data_iter = self.test_iter if is_test else self.val_iter
+        data_iter = self.test_iter if is_test else self.val_iter  # evaluate on CSU
+        data_iter = self.external_test_iter if is_external else data_iter  # evaluate on adobe
 
         all_preds, all_y_labels = [], []
 
@@ -396,8 +398,26 @@ class Trainer(object):
         # this is actually the accurate exact match
         em = metrics.accuracy_score(ys, preds)
         p, r, f1, s = metrics.precision_recall_fscore_support(ys, preds, average=None)
-        micro_f1 = np.average(f1, weights=s)
+        micro_p, micro_r, micro_f1 = np.average(p, weights=s), np.average(r, weights=s), np.average(f1, weights=s)
 
         # compute Macro-F1 here
+        if is_external:
+            # include clinical finding
+            macro_p, macro_r, macro_f1 = np.average(p[14:]), np.average(r[14:]), np.average(f1[14:])
+        else:
+            # anything > 10
+            macro_p, macro_r, macro_f1 = np.average(np.take(p, [12] + range(21,42))), \
+                                         np.average(np.take(r, [12] + range(21,42))), \
+                                         np.average(np.take(f1, [12] + range(21,42)))
 
-        return em, micro_f1
+        return em, (micro_p, micro_r, micro_f1), (macro_p, macro_r, macro_f1)
+
+class Experiment(object):
+    def __init__(self, dataset, configs, exp_save_path, devices):
+        """
+        :param dataset: Dataset class
+        :param configs: [config], will construct classifier, trainer according to config
+        :param exp_save_path: the overall saving folder
+        :param devices: [0,1,2,3], list of available deivces
+        """
+        pass
