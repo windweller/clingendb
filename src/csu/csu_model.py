@@ -35,7 +35,7 @@ class Config(object):
         return str(self.hparams)
 
     def __setitem__(self, key, value):
-        self[key] = value
+        self.hparams[key] = value
 
     def __getattr__(self, name):
         return self[name]
@@ -457,7 +457,7 @@ class Experiment(object):
 
     def config_to_string(self, config):
         # we compare config to baseline config, if values are modified, we produce it into string
-        model_name = "mod"
+        model_name = "mod"  # this will be the "baseline"
         base_config = LSTMBaseConfig()
         for k, new_v in config.hparams.items():
             if k in base_config.hparams:
