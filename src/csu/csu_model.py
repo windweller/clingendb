@@ -46,7 +46,7 @@ class Config(object):
 class LSTMBaseConfig(Config):
     def __init__(self, emb_dim=100, hidden_size=512, depth=1, label_size=42, bidir=False,
                  c=False, m=False, dropout=0.2, emb_update=True, clip_grad=5., seed=1234,
-                 rand_unk=True, run_name="sandbox",
+                 rand_unk=True, run_name="default",
                  **kwargs):
         # run_name: the folder for the trainer
         super(LSTMBaseConfig, self).__init__(emb_dim=emb_dim,
@@ -450,8 +450,9 @@ class Experiment(object):
         # **kwargs: additional commands for the two losses
         self.dataset.build_vocab(config, silent)  # because we might try different word embedding size
         classifier = Classifier(self.dataset.vocab, config)
+        trainer_folder = config.run_name if config.run_name != 'default' else self.config_to_string(config)
         trainer = Trainer(classifier, self.dataset, config,
-                          save_path=pjoin(self.exp_save_path, config.run_name),
+                          save_path=pjoin(self.exp_save_path, trainer_folder),
                           device=device, load=load, **kwargs)
 
         return trainer
