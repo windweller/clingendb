@@ -335,6 +335,7 @@ class Trainer(object):
 
     def train(self, epochs=5, no_print=True):
         # train loop
+        exp_cost = None
         for e in range(epochs):
             self.classifier.train()
             for iter, data in enumerate(self.train_iter):
@@ -445,10 +446,13 @@ class Experiment(object):
                                      'PP EM', 'PP micro-P', 'PP micro-R', 'PP micro-F1',
                                      'PP macro-P', 'PP macro-R', 'PP macro-F1'])
 
-    def get_trainer(self, config, device, load=False, silent=True, **kwargs):
+    def get_trainer(self, config, device, rebuild_vocab=False, load=False, silent=True, **kwargs):
         # build each trainer and classifier by config
         # **kwargs: additional commands for the two losses
-        self.dataset.build_vocab(config, silent)  # because we might try different word embedding size
+
+        if rebuild_vocab:
+            self.dataset.build_vocab(config, silent)  # because we might try different word embedding size
+
         classifier = Classifier(self.dataset.vocab, config)
         trainer_folder = config.run_name if config.run_name != 'default' else self.config_to_string(config)
         trainer = Trainer(classifier, self.dataset, config,
