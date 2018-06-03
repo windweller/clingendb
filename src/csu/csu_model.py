@@ -1,6 +1,13 @@
 """
 Store modular components for Jupyter Notebook
 """
+import json
+import numpy as np
+import os
+import logging
+import random
+from sklearn import metrics
+from os.path import join as pjoin
 
 from collections import defaultdict
 import torch
@@ -34,20 +41,24 @@ class Config(object):
 
 
 # then we can make special class for different types of model
-
+# each config is used to build a classifier and a trainer, so one for each
 class LSTMBaseConfig(Config):
-    def __init__(self, emb_dim=100, hidden_size=512, depth=1, nclasses=5, bidir=False,
-                 c=False, m=False, dropout=0.2, emb_update=True,
+    def __init__(self, emb_dim=100, hidden_size=512, depth=1, label_size=42, bidir=False,
+                 c=False, m=False, dropout=0.2, emb_update=True, clip_grad=5., seed=1234,
+                 rand_unk=True,
                  **kwargs):
         super(LSTMBaseConfig, self).__init__(emb_dim=emb_dim,
                                              hidden_size=hidden_size,
                                              depth=depth,
-                                             nclasses=nclasses,
+                                             label_size=label_size,
                                              bidir=bidir,
                                              c=c,
                                              m=m,
                                              dropout=dropout,
                                              emb_update=emb_update,
+                                             clip_grad=clip_grad,
+                                             seed=seed,
+                                             rand_unk=rand_unk,
                                              **kwargs)
 
 
@@ -77,10 +88,14 @@ class Classifier(nn.Module):
             dropout=config.dropout,
             bidirectional=config.bidir)  # ha...not even bidirectional
         d_out = config.hidden_size if not config.bidir else config.hidden_size * 2
-        self.out = nn.Linear(d_out, config.nclasses)  # include bias, to prevent bias assignment
+        self.out = nn.Linear(d_out, config.label_size)  # include bias, to prevent bias assignment
         self.embed = nn.Embedding(len(vocab), config.emb_dim)
         self.embed.weight.data.copy_(vocab.vectors)
         self.embed.weight.requires_grad = True if config.emb_update else False
+
+    def forward(self, input, lengths=None):
+        output_vecs = self.get_vectors(input, lengths)
+        return self.get_logits(output_vecs)
 
     def get_vectors(self, input, lengths=None):
         embed_input = self.embed(input)
@@ -112,20 +127,53 @@ class Dataset(object):
                  dataset_prefix='snomed_multi_label_no_des_',
                  test_data_name='adobe_abbr_matched_snomed_multi_label_no_des_test.tsv',
                  label_size=42):
-        TEXT = ReversibleField(sequential=True, include_lengths=True, lower=False)
-        LABEL = MultiLabelField(sequential=True, use_vocab=False, label_size=label_size, tensor_type=torch.FloatTensor)
+        self.TEXT = ReversibleField(sequential=True, include_lengths=True, lower=False)
+        self.LABEL = MultiLabelField(sequential=True, use_vocab=False, label_size=label_size, tensor_type=torch.FloatTensor)
 
+        # it's actually this step that will take 5 minutes
         self.train, self.val, self.test = data.TabularDataset.splits(
             path=path, train=dataset_prefix + 'train.tsv',
             validation=dataset_prefix + 'valid.tsv',
             test=dataset_prefix + 'test.tsv', format='tsv',
-            fields=[('Text', TEXT), ('Description', LABEL)])
+            fields=[('Text', self.TEXT), ('Description', self.LABEL)])
 
         self.external_test = data.TabularDataset(path=path + test_data_name,
                                                  format='tsv',
-                                                 fields=[('Text', TEXT), ('Description', LABEL)])
+                                                 fields=[('Text', self.TEXT), ('Description', self.LABEL)])
+
+        self.is_vocab_bulit = False
+
+    def init_emb(self, vocab, init="randn", num_special_toks=2):
+        # we can try randn or glorot
+        # mode="unk"|"all", all means initialize everything
+        emb_vectors = vocab.vectors
+        sweep_range = len(vocab)
+        running_norm = 0.
+        num_non_zero = 0
+        total_words = 0
+        for i in range(num_special_toks, sweep_range):
+            if len(emb_vectors[i, :].nonzero()) == 0:
+                # std = 0.5 is based on the norm of average GloVE word vectors
+                if init == "randn":
+                    torch.nn.init.normal(emb_vectors[i], mean=0, std=0.5)
+            else:
+                num_non_zero += 1
+                running_norm += torch.norm(emb_vectors[i])
+            total_words += 1
+        print("average GloVE norm is {}, number of known words are {}, total number of words are {}".format(
+            running_norm / num_non_zero, num_non_zero, total_words))  # directly printing into Jupyter Notebook
+
+    def build_vocab(self, config):
+        self.TEXT.build_vocab(self.train, vectors="glove.6B.{}d".format(config.emb_dim))
+        self.is_vocab_bulit = True
+        self.vocab = self.TEXT.vocab
+        if config.rand_unk:
+            print("initializing random vocabulary")
+            self.init_emb(self.vocab)
 
     def get_iterators(self, device):
+        if not self.is_vocab_bulit:
+            raise Exception("Vocabulary is not built yet..needs to call build_vocab()")
         # only get them after knowing the device (inside trainer or evaluator)
         train_iter, val_iter, test_iter = data.Iterator.splits(
             (self.train, self.val, self.test), sort_key=lambda x: len(x.Text),  # no global sort, but within-batch-sort
@@ -135,11 +183,221 @@ class Dataset(object):
         return train_iter, val_iter, test_iter
 
     def get_test_iterator(self, device):
+        if not self.is_vocab_bulit:
+            raise Exception("Vocabulary is not built yet..needs to call build_vocab()")
         external_test_iter = data.Iterator(self.external_test, 128, sort_key=lambda x: len(x.Text),
                                            device=device, train=False, repeat=False, sort_within_batch=True)
         return external_test_iter
 
 
+# compute loss
+class ClusterLoss(nn.Module):
+    def __init__(self, config, cluster_path='./data/csu/snomed_label_to_meta_grouping.json'):
+        super(ClusterLoss, self).__init__()
+
+        with open(cluster_path, 'rb') as f:
+            label_grouping = json.load(f)
+
+        self.meta_category_groups = label_grouping.values()
+        self.config = config
+
+    def forward(self, softmax_weight, batch_size):
+        w_bar = softmax_weight.sum(1) / self.config.label_size  # w_bar
+
+        omega_mean = softmax_weight.pow(2).sum()
+        omega_between = 0.
+        omega_within = 0.
+
+        for c in xrange(len(self.meta_category_groups)):
+            m_c = len(self.meta_category_groups[c])
+            w_c_bar = softmax_weight[:, self.meta_category_groups[c]].sum(1) / m_c
+            omega_between += m_c * (w_c_bar - w_bar).pow(2).sum()
+            for i in self.meta_category_groups[c]:
+                # this value will be 0 for singleton group
+                omega_within += (softmax_weight[:, i] - w_c_bar).pow(2).sum()
+
+        aux_loss = omega_mean * self.config.sigma_M + (omega_between * self.config.sigma_B +
+                                                       omega_within * self.config.sigma_W) / batch_size
+
+        return aux_loss
+
+
+class MetaLoss(nn.Module):
+    def __init__(self, config, cluster_path='./data/csu/snomed_label_to_meta_grouping.json',
+                 label_to_meta_map_path='./data/csu/snomed_label_to_meta_map.json'):
+        super(MetaLoss, self).__init__()
+
+        with open(cluster_path, 'rb') as f:
+            self.label_grouping = json.load(f)
+
+        with open(label_to_meta_map_path, 'rb') as f:
+            self.meta_label_mapping = json.load(f)
+
+        self.meta_label_size = len(self.label_grouping)
+        self.config = config
+
+        # your original classifier did this wrong...found a bug
+        self.bce_loss = nn.BCELoss()  # this takes in probability (after sigmoid)
+
+    # now that this becomes somewhat independent...maybe you can examine this more closely?
+    def generate_meta_y(self, indices, meta_label_size, batch_size):
+        a = np.array([[0.] * meta_label_size for _ in range(batch_size)], dtype=np.float32)
+        matched = defaultdict(set)
+        for b, l in indices:
+            if b not in matched:
+                a[b, self.meta_label_mapping[str(l)]] = 1.
+                matched[b].add(self.meta_label_mapping[str(l)])
+            elif self.meta_label_mapping[str(l)] not in matched[b]:
+                a[b, self.meta_label_mapping[str(l)]] = 1.
+                matched[b].add(self.meta_label_mapping[str(l)])
+        assert np.sum(a <= 1) == a.size
+        return a
+
+    def forward(self, logits, true_y, device):
+        batch_size = logits.size(0)
+        y_hat = torch.sigmoid(logits)
+        meta_probs = []
+        for i in range(self.meta_label_size):
+            # 1 - (1 - p_1)(...)(1 - p_n)
+            meta_prob = (1 - y_hat[:, self.label_grouping[str(i)]]).prod(1)
+            meta_probs.append(meta_prob)  # in this version we don't do threshold....(originally we did)
+
+        meta_probs = torch.stack(meta_probs, dim=1)
+        assert meta_probs.size(1) == self.meta_label_size
+
+        # generate meta-label
+        y_indices = true_y.nonzero()
+        meta_y = self.generate_meta_y(y_indices.data.cpu().numpy().tolist(), self.meta_label_size,
+                                      batch_size)
+        meta_y = Variable(torch.from_numpy(meta_y)) if device == -1 else Variable(torch.from_numpy(meta_y)).cuda(device)
+
+        meta_loss = self.bce_loss(meta_probs, meta_y).mean()
+        return meta_loss
+
+
+# maybe we should evaluate inside this
+# currently each Trainer is tied to one GPU, so we don't have to worry about
+# Each trainer is associated with a config and classifier actually...so should be associated with a log
+# Experiment class will create a central folder, and it will have sub-folder for each trainer
+# central folder will have an overall summary...(Experiment will also have ways to do 5 random seed exp)
 class Trainer(object):
-    def __init__(self, classifier, dataset, device):
-        pass
+    def __init__(self, classifier, dataset, config, save_path, device, load=False,
+                 **kwargs):
+        # save_path: where to save log and model
+        if load:
+            self.classifier = torch.load(pjoin(save_path, 'model.pickle')).cuda(device)
+        else:
+            self.classifier = classifier.cuda(device)
+
+        self.dataset = dataset
+        self.device = device
+        self.config = config
+        self.save_path = save_path
+
+        self.train_iter, self.val_iter, self.test_iter = self.dataset.get_iterators(device)
+        self.set_random_seed()
+
+        if config.m:
+            self.aux_loss = MetaLoss(config, **kwargs)
+        elif config.c:
+            self.aux_loss = ClusterLoss(config, **kwargs)
+
+        self.bce_logit_loss = BCEWithLogitsLoss(reduce=False)
+
+        need_grad = lambda x: x.requires_grad
+        self.optimizer = optim.Adam(
+            filter(need_grad, classifier.parameters()),
+            lr=0.001)  # obviously we could use config to control this
+
+        # setting up logging
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+        logging.basicConfig(format='[%(asctime)s] %(levelname)s: %(message)s',
+                            datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+        file_handler = logging.FileHandler("{0}/log.txt".format(save_path))
+        self.logger = logging.getLogger().addHandler(file_handler)
+
+        self.logger.info(config)
+
+    def set_random_seed(self):
+        seed = self.config.seed
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+        random.seed(seed)
+
+    def train(self, epochs=5, no_print=True):
+        # train loop
+        for e in range(epochs):
+            self.classifier.train()
+            for iter, data in enumerate(self.train_iter):
+                self.classifier.zero_grad()
+                (x, x_lengths), y = data.Text, data.Description
+
+                # output_vec = self.classifier.get_vectors(x, x_lengths)  # this is just logit (before calling sigmoid)
+                # final_rep = torch.max(output_vec, 0)[0].squeeze(0)
+                # logits = self.classifier.get_logits(output_vec)
+
+                logits = self.classifier(x, x_lengths)
+
+                batch_size = x.size(0)
+
+                if self.config.c:
+                    softmax_weight = self.classifier.get_softmax_weight()
+                    aux_loss = self.aux_loss(softmax_weight, batch_size)
+                elif self.config.m:
+                    aux_loss = self.aux_loss(logits, y, self.device)
+                else:
+                    aux_loss = 0.
+
+                loss = self.bce_logit_loss(logits, y).mean() + aux_loss
+                loss.backward()
+
+                torch.nn.utils.clip_grad_norm(self.classifier.parameters(), self.config.clip_grad)
+                self.optimizer.step()
+
+                if not exp_cost:
+                    exp_cost = loss.data[0]
+                else:
+                    exp_cost = 0.99 * exp_cost + 0.01 * loss.data[0]
+
+                if iter % 100 == 0:
+                    self.logger.info(
+                        "iter {} lr={} train_loss={} exp_cost={} \n".format(iter, self.optimizer.param_groups[0]['lr'],
+                                                                            loss.data[0], exp_cost))
+            self.logger.info("enter validation...")
+            valid_em, valid_micro_f1 = self.evaluate(is_test=False)
+            self.logger.info("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
+                e, self.optimizer.param_groups[0]['lr'], loss.data[0], valid_em
+            ))
+
+    def test(self):
+        self.logger.info("compute test set performance...")
+        return self.evaluate(is_test=True)
+
+    def evaluate(self, is_test=False):
+        self.classifier.eval()
+        data_iter = self.test_iter if is_test else self.val_iter
+
+        all_preds, all_y_labels = [], []
+
+        for iter, data in enumerate(data_iter):
+            (x, x_lengths), y = data.Text, data.Description
+            logits = self.classifier(x, x_lengths)
+
+            preds = (torch.sigmoid(logits) > 0.5).data.cpu().numpy().astype(float)
+            all_preds.append(preds)
+            all_y_labels.append(y.data.cpu().numpy())
+
+        preds = np.vstack(all_preds)
+        ys = np.vstack(all_y_labels)
+
+        self.logger.info("\n" + metrics.classification_report(ys, preds, digits=3))  # write to file
+
+        # this is actually the accurate exact match
+        em = metrics.accuracy_score(ys, preds)
+        p, r, f1, s = metrics.precision_recall_fscore_support(ys, preds, average=None)
+        micro_f1 = np.average(f1, weights=s)
+
+        # compute Macro-F1 here
+
+        return em, micro_f1
