@@ -322,7 +322,8 @@ class Trainer(object):
         logging.basicConfig(format='[%(asctime)s] %(levelname)s: %(message)s',
                             datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
         file_handler = logging.FileHandler("{0}/log.txt".format(save_path))
-        self.logger = logging.getLogger().addHandler(file_handler)
+        self.logger = logging.getLogger()
+        self.logger.addHandler(file_handler)
 
         self.logger.info(config)
 
