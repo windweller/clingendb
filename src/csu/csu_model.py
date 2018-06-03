@@ -4,6 +4,7 @@ Store modular components for Jupyter Notebook
 import json
 import numpy as np
 import os
+import csv
 import logging
 import random
 from sklearn import metrics
@@ -45,8 +46,9 @@ class Config(object):
 class LSTMBaseConfig(Config):
     def __init__(self, emb_dim=100, hidden_size=512, depth=1, label_size=42, bidir=False,
                  c=False, m=False, dropout=0.2, emb_update=True, clip_grad=5., seed=1234,
-                 rand_unk=True,
+                 rand_unk=True, run_name="sandbox",
                  **kwargs):
+        # run_name: the folder for the trainer
         super(LSTMBaseConfig, self).__init__(emb_dim=emb_dim,
                                              hidden_size=hidden_size,
                                              depth=depth,
@@ -59,6 +61,7 @@ class LSTMBaseConfig(Config):
                                              clip_grad=clip_grad,
                                              seed=seed,
                                              rand_unk=rand_unk,
+                                             run_name=run_name,
                                              **kwargs)
 
 
@@ -128,7 +131,8 @@ class Dataset(object):
                  test_data_name='adobe_abbr_matched_snomed_multi_label_no_des_test.tsv',
                  label_size=42):
         self.TEXT = ReversibleField(sequential=True, include_lengths=True, lower=False)
-        self.LABEL = MultiLabelField(sequential=True, use_vocab=False, label_size=label_size, tensor_type=torch.FloatTensor)
+        self.LABEL = MultiLabelField(sequential=True, use_vocab=False, label_size=label_size,
+                                     tensor_type=torch.FloatTensor)
 
         # it's actually this step that will take 5 minutes
         self.train, self.val, self.test = data.TabularDataset.splits(
@@ -143,7 +147,7 @@ class Dataset(object):
 
         self.is_vocab_bulit = False
 
-    def init_emb(self, vocab, init="randn", num_special_toks=2):
+    def init_emb(self, vocab, init="randn", num_special_toks=2, silent=False):
         # we can try randn or glorot
         # mode="unk"|"all", all means initialize everything
         emb_vectors = vocab.vectors
@@ -160,16 +164,18 @@ class Dataset(object):
                 num_non_zero += 1
                 running_norm += torch.norm(emb_vectors[i])
             total_words += 1
-        print("average GloVE norm is {}, number of known words are {}, total number of words are {}".format(
-            running_norm / num_non_zero, num_non_zero, total_words))  # directly printing into Jupyter Notebook
+        if not silent:
+            print("average GloVE norm is {}, number of known words are {}, total number of words are {}".format(
+                running_norm / num_non_zero, num_non_zero, total_words))  # directly printing into Jupyter Notebook
 
-    def build_vocab(self, config):
+    def build_vocab(self, config, silent=False):
         self.TEXT.build_vocab(self.train, vectors="glove.6B.{}d".format(config.emb_dim))
         self.is_vocab_bulit = True
         self.vocab = self.TEXT.vocab
         if config.rand_unk:
-            print("initializing random vocabulary")
-            self.init_emb(self.vocab)
+            if not silent:
+                print("initializing random vocabulary")
+            self.init_emb(self.vocab, silent=silent)
 
     def get_iterators(self, device):
         if not self.is_vocab_bulit:
@@ -366,10 +372,13 @@ class Trainer(object):
                         "iter {} lr={} train_loss={} exp_cost={} \n".format(iter, self.optimizer.param_groups[0]['lr'],
                                                                             loss.data[0], exp_cost))
             self.logger.info("enter validation...")
-            valid_em, valid_micro_f1 = self.evaluate(is_test=False)
+            valid_em, micro_tup, macro_tup = self.evaluate(is_test=False)
             self.logger.info("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
                 e, self.optimizer.param_groups[0]['lr'], loss.data[0], valid_em
             ))
+
+        # save model
+        torch.save(self.classifier, pjoin(self.save_path, 'model.pickle'))
 
     def test(self):
         self.logger.info("compute test set performance...")
@@ -406,18 +415,86 @@ class Trainer(object):
             macro_p, macro_r, macro_f1 = np.average(p[14:]), np.average(r[14:]), np.average(f1[14:])
         else:
             # anything > 10
-            macro_p, macro_r, macro_f1 = np.average(np.take(p, [12] + range(21,42))), \
-                                         np.average(np.take(r, [12] + range(21,42))), \
-                                         np.average(np.take(f1, [12] + range(21,42)))
+            macro_p, macro_r, macro_f1 = np.average(np.take(p, [12] + range(21, 42))), \
+                                         np.average(np.take(r, [12] + range(21, 42))), \
+                                         np.average(np.take(f1, [12] + range(21, 42)))
 
         return em, (micro_p, micro_r, micro_f1), (macro_p, macro_r, macro_f1)
 
+
+# Experiment class can also be "handled" by Jupyter Notebook
 class Experiment(object):
-    def __init__(self, dataset, configs, exp_save_path, devices):
+    def __init__(self, dataset, exp_save_path):
         """
         :param dataset: Dataset class
-        :param configs: [config], will construct classifier, trainer according to config
         :param exp_save_path: the overall saving folder
-        :param devices: [0,1,2,3], list of available deivces
         """
+        if not os.path.exists(exp_save_path):
+            os.makedirs(exp_save_path)
+
+        self.dataset = dataset
+        self.exp_save_path = exp_save_path
+
+        # we never want to overwrite this file
+        if not os.path.exists(pjoin(exp_save_path, "all_runs_stats.csv")):
+            with open(pjoin(self.exp_save_path, "all_runs_stats.csv"), 'w') as f:
+                csv_writer = csv.writer(f)
+                csv_writer.writerow(['model', 'CSU EM', 'CSU micro-P', 'CSU micro-R', 'CSU micro-F1',
+                                     'CSU macro-P', 'CSU macro-R', 'CSU macro-F1',
+                                     'PP EM', 'PP micro-P', 'PP micro-R', 'PP micro-F1',
+                                     'PP macro-P', 'PP macro-R', 'PP macro-F1'])
+
+    def get_trainer(self, config, device, load=False, silent=True, **kwargs):
+        # build each trainer and classifier by config
+        # **kwargs: additional commands for the two losses
+        self.dataset.build_vocab(config, silent)  # because we might try different word embedding size
+        classifier = Classifier(self.dataset.vocab, config)
+        trainer = Trainer(classifier, self.dataset, config,
+                          save_path=pjoin(self.exp_save_path, config.run_name),
+                          device=device, load=load, **kwargs)
+
+        return trainer
+
+    def config_to_string(self, config):
+        # we compare config to baseline config, if values are modified, we produce it into string
+        model_name = "mod"
+        base_config = LSTMBaseConfig()
+        for k, new_v in config.hparams.items():
+            if k in base_config.hparams:
+                old_v = base_config[k]
+                if old_v != new_v:
+                    model_name += "_{}_{}".format(k, new_v)
+            else:
+                model_name += "_{}_{}".format(k, new_v)
+
+        return model_name.replace('.', '')
+
+    def record_meta_result(self, meta_results, append, config):
+        # this records result one line at a time!
+        mode = 'a' if append else 'w'
+        model_str = self.config_to_string(config)
+
+        csu_em, csu_micro_tup, csu_macro_tup, \
+        pp_em, pp_micro_tup, pp_macro_tup = meta_results
+
+        with open(pjoin(self.exp_save_path, "all_runs_stats.csv"), mode=mode) as f:
+            csv_writer = csv.writer(f)
+            csv_writer.writerow([model_str, csu_em, csu_micro_tup[0],
+                                 csu_micro_tup[1], csu_micro_tup[2],
+                                 csu_macro_tup[0], csu_macro_tup[1], csu_macro_tup[2],
+                                 pp_em, pp_micro_tup[0], pp_micro_tup[1], pp_micro_tup[2],
+                                 pp_macro_tup[0], pp_macro_tup[1], pp_macro_tup[2]])
+
+    def execute(self, trainer, append=True):
+        # the benefit of this function is it will record meta-result into a file...
+        trainer.train()
+        csu_em, csu_micro_tup, csu_macro_tup = trainer.test()
+        trainer.logger.info("===== Evaluating on PP data =====")
+        pp_em, pp_micro_tup, pp_macro_tup = trainer.evaluate(is_external=True)
+        self.record_meta_result([csu_em, csu_micro_tup, csu_macro_tup,
+                                 pp_em, pp_micro_tup, pp_macro_tup],
+                                append=append, config=trainer.config)
+
+    def re_execute(self):
+        # load in previous model, and just get results, no recording
         pass
