@@ -376,17 +376,17 @@ class Trainer(object):
             self.logger.info("enter validation...")
             valid_em, micro_tup, macro_tup = self.evaluate(is_test=False)
             self.logger.info("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
-                e, self.optimizer.param_groups[0]['lr'], loss.data[0], valid_em
+                e + 1, self.optimizer.param_groups[0]['lr'], loss.data[0], valid_em
             ))
 
         # save model
         torch.save(self.classifier, pjoin(self.save_path, 'model.pickle'))
 
-    def test(self):
+    def test(self, silent=False):
         self.logger.info("compute test set performance...")
-        return self.evaluate(is_test=True)
+        return self.evaluate(is_test=True, silent=silent)
 
-    def evaluate(self, is_test=False, is_external=False):
+    def evaluate(self, is_test=False, is_external=False, silent=False):
         self.classifier.eval()
         data_iter = self.test_iter if is_test else self.val_iter  # evaluate on CSU
         data_iter = self.external_test_iter if is_external else data_iter  # evaluate on adobe
@@ -404,7 +404,8 @@ class Trainer(object):
         preds = np.vstack(all_preds)
         ys = np.vstack(all_y_labels)
 
-        self.logger.info("\n" + metrics.classification_report(ys, preds, digits=3))  # write to file
+        if not silent:
+            self.logger.info("\n" + metrics.classification_report(ys, preds, digits=3))  # write to file
 
         # this is actually the accurate exact match
         em = metrics.accuracy_score(ys, preds)
@@ -425,6 +426,10 @@ class Trainer(object):
 
 
 # Experiment class can also be "handled" by Jupyter Notebook
+# Usage guide:
+# config also manages random seed. So it's possible to just swap in and out random seed from config
+# to run an average, can write it into another function inside Experiment class called `repeat_execute()`
+# also, currently once trainer is deleted, the classifier pointer would be lost...completely
 class Experiment(object):
     def __init__(self, dataset, exp_save_path):
         """
@@ -447,7 +452,7 @@ class Experiment(object):
                                      'PP macro-P', 'PP macro-R', 'PP macro-F1'])
 
     def get_trainer(self, config, device, rebuild_vocab=False, load=False, silent=True, **kwargs):
-        # build each trainer and classifier by config
+        # build each trainer and classifier by config; or reload classifier
         # **kwargs: additional commands for the two losses
 
         if rebuild_vocab:
@@ -501,6 +506,34 @@ class Experiment(object):
                                  pp_em, pp_micro_tup, pp_macro_tup],
                                 append=append, config=trainer.config)
 
-    def re_execute(self):
+    def re_execute(self, trainer, write_to_meta=False):
         # load in previous model, and just get results, no recording
-        pass
+        csu_em, csu_micro_tup, csu_macro_tup = trainer.test(silent=True)
+        trainer.logger.info("===== Evaluating on PP data =====")
+        pp_em, pp_micro_tup, pp_macro_tup = trainer.evaluate(is_external=True, silent=True)
+        if write_to_meta:
+            self.record_meta_result([csu_em, csu_micro_tup, csu_macro_tup,
+                                     pp_em, pp_micro_tup, pp_macro_tup],
+                                    append=True, config=trainer.config)
+
+if __name__ == '__main__':
+    # if we just call this file, it will set up an interactive console
+    print("loading in dataset...will take 3-4 minutes...")
+    dataset = Dataset()
+
+    # import IPython; IPython.embed()
+
+    # baseline LSTM
+    curr_exp = Experiment(dataset=dataset, exp_save_path='./csu_new_exp/')
+    lstm_base_c = LSTMBaseConfig()
+
+    trainer = curr_exp.get_trainer(config=lstm_base_c, device=3)
+    curr_exp.execute(trainer=trainer)
+
+    # baseline LSTM + M
+
+    lstm_m_config = LSTM_w_M_Config(beta=1e-3)
+    trainer = curr_exp.get_trainer(config=lstm_m_config, device=3)
+    curr_exp.execute(trainer)
+
+    import IPython; IPython.embed()
