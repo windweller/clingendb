@@ -535,34 +535,38 @@ class Experiment(object):
                                     append=True, config=trainer.config)
 
 
-def run_baseline():
+def run_baseline(device):
     lstm_base_c = LSTMBaseConfig()
-    trainer = curr_exp.get_trainer(config=lstm_base_c, device=3, build_vocab=True)
+    trainer = curr_exp.get_trainer(config=lstm_base_c, device=device, build_vocab=True)
     curr_exp.execute(trainer=trainer)
 
 
-def run_bidir_baseline():
+def run_bidir_baseline(device):
     lstm_bidir_c = LSTMBaseConfig(bidir=True)
-    trainer = curr_exp.get_trainer(config=lstm_bidir_c, device=3, build_vocab=True)
+    trainer = curr_exp.get_trainer(config=lstm_bidir_c, device=device, build_vocab=True)
     curr_exp.execute(trainer=trainer)
 
 
-def run_m_penalty(beta=1e-3, bidir=False):
+def run_m_penalty(device, beta=1e-3, bidir=False):
     config = LSTM_w_M_Config(beta, bidir=bidir)
-    trainer = curr_exp.get_trainer(config=config, device=3, build_vocab=True)
+    trainer = curr_exp.get_trainer(config=config, device=device, build_vocab=True)
     curr_exp.execute(trainer=trainer)
 
 
-def run_c_penalty(sigma_M, sigma_B, sigma_W, bidir=False):
+def run_c_penalty(device, sigma_M, sigma_B, sigma_W, bidir=False):
     config = LSTM_w_C_Config(sigma_M, sigma_B, sigma_W, bidir=bidir)
-    trainer = curr_exp.get_trainer(config=config, device=3, build_vocab=True)
+    trainer = curr_exp.get_trainer(config=config, device=device, build_vocab=True)
     curr_exp.execute(trainer=trainer)
+
 
 if __name__ == '__main__':
     # if we just call this file, it will set up an interactive console
     random.seed(1234)
 
     action = raw_input("enter branches of default actions: active | baseline | meta | cluster \n")
+
+    device_num = int(raw_input("enter the GPU device number \n"))
+    assert -1 <= device_num <= 3, "GPU ID must be between -1 and 3"
 
     print("loading in dataset...will take 3-4 minutes...")
     dataset = Dataset()
@@ -573,18 +577,18 @@ if __name__ == '__main__':
         import IPython; IPython.embed()
     elif action == 'baseline':
         # baseline LSTM
-        run_baseline()
-        run_bidir_baseline()
+        run_baseline(device_num)
+        run_bidir_baseline(device_num)
     elif action == 'meta':
         # baseline LSTM + M
-        run_m_penalty(beta=1e-3)
-        run_m_penalty(beta=1e-4)
-        run_m_penalty(beta=1e-5)
+        run_m_penalty(device_num, beta=1e-3)
+        run_m_penalty(device_num, beta=1e-4)
+        run_m_penalty(device_num, beta=1e-5)
 
         # baseline LSTM + M + bidir
-        run_m_penalty(beta=1e-3, bidir=True)
-        run_m_penalty(beta=1e-4, bidir=True)
-        run_m_penalty(beta=1e-5, bidir=True)
+        run_m_penalty(device_num, beta=1e-3, bidir=True)
+        run_m_penalty(device_num, beta=1e-4, bidir=True)
+        run_m_penalty(device_num, beta=1e-5, bidir=True)
     elif action == 'cluster':
         pass
     else:
