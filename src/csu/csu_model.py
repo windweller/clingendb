@@ -562,7 +562,7 @@ if __name__ == '__main__':
     # if we just call this file, it will set up an interactive console
     random.seed(1234)
 
-    action = raw_input("enter branches of default actions: active | baseline | meta | cluster")
+    action = raw_input("enter branches of default actions: active | baseline | meta | cluster \n")
 
     print("loading in dataset...will take 3-4 minutes...")
     dataset = Dataset()
