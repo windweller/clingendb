@@ -200,7 +200,7 @@ class Dataset(object):
 
         if self.test_iterator is not None:
             return self.test_iterator
-        
+
         external_test_iter = data.Iterator(self.external_test, 128, sort_key=lambda x: len(x.Text),
                                            device=device, train=False, repeat=False, sort_within_batch=True)
         return external_test_iter
@@ -440,6 +440,7 @@ class Trainer(object):
 # config also manages random seed. So it's possible to just swap in and out random seed from config
 # to run an average, can write it into another function inside Experiment class called `repeat_execute()`
 # also, currently once trainer is deleted, the classifier pointer would be lost...completely
+# TODO: allow test() and evaluate() to return by-label p/r/f1
 class Experiment(object):
     def __init__(self, dataset, exp_save_path):
         """
@@ -516,8 +517,14 @@ class Experiment(object):
                                  pp_em, pp_micro_tup, pp_macro_tup],
                                 append=append, config=trainer.config)
 
+    def delete_trainer(self, trainer):
+        # move all parameters to cpu and then delete the pointer
+        trainer.classifier.cpu()
+        del trainer.classifier
+        del trainer
+
     def re_execute(self, trainer, write_to_meta=False):
-        # load in previous model, and just get results, no recording
+        # load in previous model in get_trainer(), and just get results, no recording
         csu_em, csu_micro_tup, csu_macro_tup = trainer.test(silent=True)
         trainer.logger.info("===== Evaluating on PP data =====")
         pp_em, pp_micro_tup, pp_macro_tup = trainer.evaluate(is_external=True, silent=True)
