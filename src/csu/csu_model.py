@@ -146,6 +146,8 @@ class Dataset(object):
                                                  fields=[('Text', self.TEXT), ('Description', self.LABEL)])
 
         self.is_vocab_bulit = False
+        self.iterators = []
+        self.test_iterator = None
 
     def init_emb(self, vocab, init="randn", num_special_toks=2, silent=False):
         # we can try randn or glorot
@@ -180,6 +182,10 @@ class Dataset(object):
     def get_iterators(self, device):
         if not self.is_vocab_bulit:
             raise Exception("Vocabulary is not built yet..needs to call build_vocab()")
+
+        if len(self.iterators) > 0:
+            return self.iterators  # return stored iterator
+
         # only get them after knowing the device (inside trainer or evaluator)
         train_iter, val_iter, test_iter = data.Iterator.splits(
             (self.train, self.val, self.test), sort_key=lambda x: len(x.Text),  # no global sort, but within-batch-sort
@@ -191,6 +197,10 @@ class Dataset(object):
     def get_test_iterator(self, device):
         if not self.is_vocab_bulit:
             raise Exception("Vocabulary is not built yet..needs to call build_vocab()")
+
+        if self.test_iterator is not None:
+            return self.test_iterator
+        
         external_test_iter = data.Iterator(self.external_test, 128, sort_key=lambda x: len(x.Text),
                                            device=device, train=False, repeat=False, sort_within_batch=True)
         return external_test_iter
@@ -516,9 +526,32 @@ class Experiment(object):
                                      pp_em, pp_micro_tup, pp_macro_tup],
                                     append=True, config=trainer.config)
 
+
+def run_baseline():
+    lstm_base_c = LSTMBaseConfig()
+    trainer = curr_exp.get_trainer(config=lstm_base_c, device=3, build_vocab=True)
+    curr_exp.execute(trainer=trainer)
+
+
+def run_bidir_baseline():
+    lstm_bidir_c = LSTMBaseConfig(bidir=True)
+    trainer = curr_exp.get_trainer(config=lstm_bidir_c, device=3, build_vocab=True)
+    curr_exp.execute(trainer=trainer)
+
+
+def run_m_penalty(beta=1e-3, bidir=False):
+    config = LSTM_w_M_Config(beta, bidir=bidir)
+    trainer = curr_exp.get_trainer(config=config, device=3, build_vocab=True)
+    curr_exp.execute(trainer=trainer)
+
+
+def run_c_penalty(sigma_M, sigma_B, sigma_W, bidir=False):
+    config = LSTM_w_C_Config(sigma_M, sigma_B, sigma_W, bidir=bidir)
+    trainer = curr_exp.get_trainer(config=config, device=3, build_vocab=True)
+    curr_exp.execute(trainer=trainer)
+
 # 1. if training models sequentially will trigger GPU OOM
-# 2. torch.save() is having problem... (it might not know how to serialize certain things...)
-# Maybe instead of Jupyter Notebook, this interactive approach is better? and use Notebook for visual analysis...
+# Continue running after IPython interface is activated...
 if __name__ == '__main__':
     # if we just call this file, it will set up an interactive console
 
@@ -527,18 +560,14 @@ if __name__ == '__main__':
 
     # import IPython; IPython.embed()
 
-    # baseline LSTM
     curr_exp = Experiment(dataset=dataset, exp_save_path='./csu_new_exp/')
-    lstm_base_c = LSTMBaseConfig()
-
-    trainer = curr_exp.get_trainer(config=lstm_base_c, device=3, build_vocab=True)
-    curr_exp.execute(trainer=trainer)
 
     import IPython; IPython.embed()
+    # baseline LSTM
+    # run_baseline()
 
     # baseline LSTM + M
 
     # lstm_m_config = LSTM_w_M_Config(beta=1e-3)
     # trainer = curr_exp.get_trainer(config=lstm_m_config, device=3, build_vocab=True)
     # curr_exp.execute(trainer)
-
