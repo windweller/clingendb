@@ -517,8 +517,8 @@ class Experiment(object):
                                     append=True, config=trainer.config)
 
 # 1. if training models sequentially will trigger GPU OOM
-# 2. if there's a bug right now...which is possibly the case
-# 3. torch.save() is having problem... (it doesn't know how to serialize certain things...)
+# 2. torch.save() is having problem... (it might not know how to serialize certain things...)
+# Maybe instead of Jupyter Notebook, this interactive approach is better? and use Notebook for visual analysis...
 if __name__ == '__main__':
     # if we just call this file, it will set up an interactive console
 
@@ -532,8 +532,9 @@ if __name__ == '__main__':
     lstm_base_c = LSTMBaseConfig()
 
     trainer = curr_exp.get_trainer(config=lstm_base_c, device=3, build_vocab=True)
+    curr_exp.execute(trainer=trainer)
+
     import IPython; IPython.embed()
-    # curr_exp.execute(trainer=trainer)
 
     # baseline LSTM + M
 
