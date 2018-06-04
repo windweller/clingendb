@@ -287,7 +287,7 @@ class MetaLoss(nn.Module):
                                       batch_size)
         meta_y = Variable(torch.from_numpy(meta_y)) if device == -1 else Variable(torch.from_numpy(meta_y)).cuda(device)
 
-        meta_loss = self.bce_loss(meta_probs, meta_y).mean()
+        meta_loss = self.bce_loss(meta_probs, meta_y) * self.config.beta
         return meta_loss
 
 
@@ -332,7 +332,7 @@ class Trainer(object):
         logging.basicConfig(format='[%(asctime)s] %(levelname)s: %(message)s',
                             datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
         file_handler = logging.FileHandler("{0}/log.txt".format(save_path))
-        self.logger = logging.getLogger()
+        self.logger = logging.getLogger(save_path.split('/')[-1])  # so that no model is sharing logger
         self.logger.addHandler(file_handler)
 
         self.logger.info(config)
@@ -513,6 +513,7 @@ class Experiment(object):
         csu_em, csu_micro_tup, csu_macro_tup = trainer.test()
         trainer.logger.info("===== Evaluating on PP data =====")
         pp_em, pp_micro_tup, pp_macro_tup = trainer.evaluate(is_external=True)
+        trainer.logger.info("PP accuracy = {}".format(pp_em))
         self.record_meta_result([csu_em, csu_micro_tup, csu_macro_tup,
                                  pp_em, pp_micro_tup, pp_macro_tup],
                                 append=append, config=trainer.config)
@@ -557,24 +558,34 @@ def run_c_penalty(sigma_M, sigma_B, sigma_W, bidir=False):
     trainer = curr_exp.get_trainer(config=config, device=3, build_vocab=True)
     curr_exp.execute(trainer=trainer)
 
-# 1. if training models sequentially will trigger GPU OOM
-# Continue running after IPython interface is activated...
 if __name__ == '__main__':
     # if we just call this file, it will set up an interactive console
+    random.seed(1234)
+
+    action = raw_input("enter branches of default actions: active | baseline | meta | cluster")
 
     print("loading in dataset...will take 3-4 minutes...")
     dataset = Dataset()
 
-    # import IPython; IPython.embed()
-
     curr_exp = Experiment(dataset=dataset, exp_save_path='./csu_new_exp/')
 
-    import IPython; IPython.embed()
-    # baseline LSTM
-    # run_baseline()
+    if action == 'active':
+        import IPython; IPython.embed()
+    elif action == 'baseline':
+        # baseline LSTM
+        run_baseline()
+        run_bidir_baseline()
+    elif action == 'meta':
+        # baseline LSTM + M
+        run_m_penalty(beta=1e-3)
+        run_m_penalty(beta=1e-4)
+        run_m_penalty(beta=1e-5)
 
-    # baseline LSTM + M
-
-    # lstm_m_config = LSTM_w_M_Config(beta=1e-3)
-    # trainer = curr_exp.get_trainer(config=lstm_m_config, device=3, build_vocab=True)
-    # curr_exp.execute(trainer)
+        # baseline LSTM + M + bidir
+        run_m_penalty(beta=1e-3, bidir=True)
+        run_m_penalty(beta=1e-4, bidir=True)
+        run_m_penalty(beta=1e-5, bidir=True)
+    elif action == 'cluster':
+        pass
+    else:
+        print("Non-identifiable action: {}".format(action))
