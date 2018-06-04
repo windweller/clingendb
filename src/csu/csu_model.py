@@ -558,6 +558,7 @@ def run_c_penalty(device, sigma_M, sigma_B, sigma_W, bidir=False):
     trainer = curr_exp.get_trainer(config=config, device=device, build_vocab=True)
     curr_exp.execute(trainer=trainer)
 
+
 # TODO: maybe code in multi-run support (over many random seeds)
 if __name__ == '__main__':
     # if we just call this file, it will set up an interactive console
@@ -591,12 +592,12 @@ if __name__ == '__main__':
         run_m_penalty(device_num, beta=1e-5, bidir=True)
     elif action == 'cluster':
         # baseline LSTM + C
-        run_c_penalty(device_num, sigma_M=1e-5, sigma_B=1e-4, sigma_W=1e-4, bidir=True)
-        run_c_penalty(device_num, sigma_M=1e-4, sigma_B=1e-3, sigma_W=1e-3, bidir=True)
+        run_c_penalty(device_num, sigma_M=1e-5, sigma_B=1e-4, sigma_W=1e-4)
+        run_c_penalty(device_num, sigma_M=1e-4, sigma_B=1e-3, sigma_W=1e-3)
 
         # baseline LSTM + C + bidir
-        run_c_penalty(device_num, sigma_M=1e-5, sigma_B=1e-4, sigma_W=1e-4, bidir=True)
-        run_c_penalty(device_num, sigma_M=1e-4, sigma_B=1e-3, sigma_W=1e-3, bidir=True)
+        # run_c_penalty(device_num, sigma_M=1e-5, sigma_B=1e-4, sigma_W=1e-4, bidir=True)
+        # run_c_penalty(device_num, sigma_M=1e-4, sigma_B=1e-3, sigma_W=1e-3, bidir=True)
 
     else:
         print("Non-identifiable action: {}".format(action))
