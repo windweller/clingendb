@@ -569,10 +569,13 @@ if __name__ == '__main__':
     device_num = int(raw_input("enter the GPU device number \n"))
     assert -1 <= device_num <= 3, "GPU ID must be between -1 and 3"
 
+    exp_name = raw_input("enter the experiment name, default is 'csu_new_exp', skip to use default: ")
+    exp_name = 'csu_new_exp' if exp_name.strip() == '' else exp_name
+
     print("loading in dataset...will take 3-4 minutes...")
     dataset = Dataset()
 
-    curr_exp = Experiment(dataset=dataset, exp_save_path='./csu_new_exp/')
+    curr_exp = Experiment(dataset=dataset, exp_save_path='./{}/'.format(exp_name))
 
     if action == 'active':
         import IPython; IPython.embed()
