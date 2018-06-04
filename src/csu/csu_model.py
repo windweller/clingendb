@@ -451,11 +451,11 @@ class Experiment(object):
                                      'PP EM', 'PP micro-P', 'PP micro-R', 'PP micro-F1',
                                      'PP macro-P', 'PP macro-R', 'PP macro-F1'])
 
-    def get_trainer(self, config, device, rebuild_vocab=False, load=False, silent=True, **kwargs):
+    def get_trainer(self, config, device, build_vocab=False, load=False, silent=True, **kwargs):
         # build each trainer and classifier by config; or reload classifier
         # **kwargs: additional commands for the two losses
 
-        if rebuild_vocab:
+        if build_vocab:
             self.dataset.build_vocab(config, silent)  # because we might try different word embedding size
 
         classifier = Classifier(self.dataset.vocab, config)
@@ -478,7 +478,7 @@ class Experiment(object):
             else:
                 model_name += "_{}_{}".format(k, new_v)
 
-        return model_name.replace('.', '')
+        return model_name.replace('.', '').replace('-', '_')  # for 1e-3 to 1e_3
 
     def record_meta_result(self, meta_results, append, config):
         # this records result one line at a time!
@@ -516,8 +516,12 @@ class Experiment(object):
                                      pp_em, pp_micro_tup, pp_macro_tup],
                                     append=True, config=trainer.config)
 
+# 1. if training models sequentially will trigger GPU OOM
+# 2. if there's a bug right now...which is possibly the case
+# 3. torch.save() is having problem... (it doesn't know how to serialize certain things...)
 if __name__ == '__main__':
     # if we just call this file, it will set up an interactive console
+
     print("loading in dataset...will take 3-4 minutes...")
     dataset = Dataset()
 
@@ -527,13 +531,13 @@ if __name__ == '__main__':
     curr_exp = Experiment(dataset=dataset, exp_save_path='./csu_new_exp/')
     lstm_base_c = LSTMBaseConfig()
 
-    trainer = curr_exp.get_trainer(config=lstm_base_c, device=3)
-    curr_exp.execute(trainer=trainer)
+    trainer = curr_exp.get_trainer(config=lstm_base_c, device=3, build_vocab=True)
+    import IPython; IPython.embed()
+    # curr_exp.execute(trainer=trainer)
 
     # baseline LSTM + M
 
-    lstm_m_config = LSTM_w_M_Config(beta=1e-3)
-    trainer = curr_exp.get_trainer(config=lstm_m_config, device=3)
-    curr_exp.execute(trainer)
+    # lstm_m_config = LSTM_w_M_Config(beta=1e-3)
+    # trainer = curr_exp.get_trainer(config=lstm_m_config, device=3, build_vocab=True)
+    # curr_exp.execute(trainer)
 
-    import IPython; IPython.embed()
