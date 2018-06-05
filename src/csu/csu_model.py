@@ -392,11 +392,11 @@ class Trainer(object):
         # save model
         torch.save(self.classifier, pjoin(self.save_path, 'model.pickle'))
 
-    def test(self, silent=False):
+    def test(self, silent=False, return_by_label_stats=False):
         self.logger.info("compute test set performance...")
-        return self.evaluate(is_test=True, silent=silent)
+        return self.evaluate(is_test=True, silent=silent, return_by_label_stats=return_by_label_stats)
 
-    def evaluate(self, is_test=False, is_external=False, silent=False):
+    def evaluate(self, is_test=False, is_external=False, silent=False, return_by_label_stats=False):
         self.classifier.eval()
         data_iter = self.test_iter if is_test else self.val_iter  # evaluate on CSU
         data_iter = self.external_test_iter if is_external else data_iter  # evaluate on adobe
@@ -420,6 +420,10 @@ class Trainer(object):
         # this is actually the accurate exact match
         em = metrics.accuracy_score(ys, preds)
         p, r, f1, s = metrics.precision_recall_fscore_support(ys, preds, average=None)
+
+        if return_by_label_stats:
+            return p, r, f1, s
+
         micro_p, micro_r, micro_f1 = np.average(p, weights=s), np.average(r, weights=s), np.average(f1, weights=s)
 
         # compute Macro-F1 here
@@ -585,14 +589,16 @@ if __name__ == '__main__':
         run_bidir_baseline(device_num)
     elif action == 'meta':
         # baseline LSTM + M
-        run_m_penalty(device_num, beta=1e-3)
-        run_m_penalty(device_num, beta=1e-4)
-        run_m_penalty(device_num, beta=1e-5)
+        # run_m_penalty(device_num, beta=1e-3)
+        # run_m_penalty(device_num, beta=1e-4)
+        # run_m_penalty(device_num, beta=1e-5)
+        run_m_penalty(device_num, beta=1e-2)
 
         # baseline LSTM + M + bidir
-        run_m_penalty(device_num, beta=1e-3, bidir=True)
-        run_m_penalty(device_num, beta=1e-4, bidir=True)
-        run_m_penalty(device_num, beta=1e-5, bidir=True)
+        # run_m_penalty(device_num, beta=1e-3, bidir=True)
+        # run_m_penalty(device_num, beta=1e-4, bidir=True)
+        # run_m_penalty(device_num, beta=1e-5, bidir=True)
+        run_m_penalty(device_num, beta=1e-2, bidir=True)
     elif action == 'cluster':
         # baseline LSTM + C
         run_c_penalty(device_num, sigma_M=1e-5, sigma_B=1e-4, sigma_W=1e-4)
