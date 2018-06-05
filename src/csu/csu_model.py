@@ -349,7 +349,6 @@ class Trainer(object):
 
         self.train_iter, self.val_iter, self.test_iter = self.dataset.get_iterators(device)
         self.external_test_iter = self.dataset.get_test_iterator(device)
-        self.set_random_seed()
 
         if config.m:
             self.aux_loss = MetaLoss(config, **kwargs)
@@ -373,12 +372,6 @@ class Trainer(object):
         self.logger.addHandler(file_handler)
 
         self.logger.info(config)
-
-    def set_random_seed(self):
-        seed = self.config.seed
-        torch.manual_seed(seed)
-        np.random.seed(seed)
-        random.seed(seed)
 
     def train(self, epochs=5, no_print=True):
         # train loop
@@ -510,6 +503,8 @@ class Experiment(object):
         if build_vocab:
             self.dataset.build_vocab(config, silent)  # because we might try different word embedding size
 
+        self.set_random_seed(config)
+
         classifier = Classifier(self.dataset.vocab, config)
         trainer_folder = config.run_name if config.run_name != 'default' else self.config_to_string(config)
         trainer = Trainer(classifier, self.dataset, config,
@@ -517,6 +512,12 @@ class Experiment(object):
                           device=device, load=load, **kwargs)
 
         return trainer
+
+    def set_random_seed(self, config):
+        seed = config.seed
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+        random.seed(seed)
 
     def config_to_string(self, config):
         # we compare config to baseline config, if values are modified, we produce it into string
