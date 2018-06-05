@@ -627,14 +627,14 @@ if __name__ == '__main__':
         run_bidir_baseline(device_num)
     elif action == 'meta':
         # baseline LSTM + M
-        # run_m_penalty(device_num, beta=1e-3)
-        # run_m_penalty(device_num, beta=1e-4)
-        # run_m_penalty(device_num, beta=1e-5)
+        run_m_penalty(device_num, beta=1e-3)
+        run_m_penalty(device_num, beta=1e-4)
+        run_m_penalty(device_num, beta=1e-5)
 
         # baseline LSTM + M + bidir
-        # run_m_penalty(device_num, beta=1e-3, bidir=True)
+        run_m_penalty(device_num, beta=1e-3, bidir=True)
         run_m_penalty(device_num, beta=1e-4, bidir=True)
-        # run_m_penalty(device_num, beta=1e-5, bidir=True)
+        run_m_penalty(device_num, beta=1e-5, bidir=True)
     elif action == 'cluster':
         # baseline LSTM + C
         run_c_penalty(device_num, sigma_M=1e-5, sigma_B=1e-4, sigma_W=1e-4)
