@@ -21,24 +21,61 @@ from torchtext import data
 from util import MultiLabelField, ReversibleField, BCEWithLogitsLoss, MultiMarginHierarchyLoss
 
 
-class Config(object):
+class Config(dict):
     def __init__(self, **kwargs):
-        self.hparams = defaultdict(**kwargs)
+        super(Config, self).__init__(**kwargs)
+        self.__dict__.update(**kwargs)
+
+    def __setitem__(self, key, item):
+        self.__dict__[key] = item
 
     def __getitem__(self, key):
-        return self.hparams[key]
+        return self.__dict__[key]
 
-    def __missing__(self, key):
-        return False
+    def __repr__(self):
+        return repr(self.__dict__)
 
-    def __str__(self):
-        return str(self.hparams)
+    def __len__(self):
+        return len(self.__dict__)
 
-    def __setitem__(self, key, value):
-        self.hparams[key] = value
+    def __delitem__(self, key):
+        del self.__dict__[key]
 
-    def __getattr__(self, name):
-        return self[name]
+    def clear(self):
+        return self.__dict__.clear()
+
+    def copy(self):
+        return self.__dict__.copy()
+
+    def has_key(self, k):
+        return k in self.__dict__
+
+    def update(self, *args, **kwargs):
+        return self.__dict__.update(*args, **kwargs)
+
+    def keys(self):
+        return self.__dict__.keys()
+
+    def values(self):
+        return self.__dict__.values()
+
+    def items(self):
+        return self.__dict__.items()
+
+    def pop(self, *args):
+        return self.__dict__.pop(*args)
+
+    def __cmp__(self, dict_):
+        return self.__cmp__(self.__dict__, dict_)
+
+    def __contains__(self, item):
+        return item in self.__dict__
+
+    def __iter__(self):
+        return iter(self.__dict__)
+
+    def __unicode__(self):
+        return unicode(repr(self.__dict__))
 
 
 # then we can make special class for different types of model
@@ -582,7 +619,9 @@ if __name__ == '__main__':
     curr_exp = Experiment(dataset=dataset, exp_save_path='./{}/'.format(exp_name))
 
     if action == 'active':
-        import IPython; IPython.embed()
+        import IPython;
+
+        IPython.embed()
     elif action == 'baseline':
         # baseline LSTM
         run_baseline(device_num)
@@ -592,13 +631,11 @@ if __name__ == '__main__':
         # run_m_penalty(device_num, beta=1e-3)
         # run_m_penalty(device_num, beta=1e-4)
         # run_m_penalty(device_num, beta=1e-5)
-        run_m_penalty(device_num, beta=1e-2)
 
         # baseline LSTM + M + bidir
         # run_m_penalty(device_num, beta=1e-3, bidir=True)
-        # run_m_penalty(device_num, beta=1e-4, bidir=True)
+        run_m_penalty(device_num, beta=1e-4, bidir=True)
         # run_m_penalty(device_num, beta=1e-5, bidir=True)
-        run_m_penalty(device_num, beta=1e-2, bidir=True)
     elif action == 'cluster':
         # baseline LSTM + C
         run_c_penalty(device_num, sigma_M=1e-5, sigma_B=1e-4, sigma_W=1e-4)
