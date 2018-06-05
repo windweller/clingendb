@@ -522,8 +522,8 @@ class Experiment(object):
         # we compare config to baseline config, if values are modified, we produce it into string
         model_name = "mod"  # this will be the "baseline"
         base_config = LSTMBaseConfig()
-        for k, new_v in config.hparams.items():
-            if k in base_config.hparams:
+        for k, new_v in config.items():
+            if k in base_config.keys():
                 old_v = base_config[k]
                 if old_v != new_v:
                     model_name += "_{}_{}".format(k, new_v)
@@ -619,9 +619,7 @@ if __name__ == '__main__':
     curr_exp = Experiment(dataset=dataset, exp_save_path='./{}/'.format(exp_name))
 
     if action == 'active':
-        import IPython;
-
-        IPython.embed()
+        import IPython; IPython.embed()
     elif action == 'baseline':
         # baseline LSTM
         run_baseline(device_num)
