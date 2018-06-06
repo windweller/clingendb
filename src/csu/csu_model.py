@@ -641,12 +641,13 @@ if __name__ == '__main__':
     exp_name = raw_input("enter the experiment name, default is 'csu_new_exp', skip to use default: ")
     exp_name = 'csu_new_exp' if exp_name.strip() == '' else exp_name
 
+    emb_corpus = raw_input("enter embedding choice: gigaword | common_crawl \n")
+    assert emb_corpus == 'gigaword' or emb_corpus == 'common_crawl'
+
     print("loading in dataset...will take 3-4 minutes...")
     dataset = Dataset()
 
     curr_exp = Experiment(dataset=dataset, exp_save_path='./{}/'.format(exp_name))
-    emb_corpus = raw_input("enter embedding choice: gigaword | common_crawl \n")
-    assert emb_corpus == 'gigaword' or emb_corpus == 'common_crawl'
 
     if action == 'active':
         import IPython; IPython.embed()
