@@ -211,6 +211,7 @@ class Dataset(object):
     def build_vocab(self, config, silent=False):
         if config.emb_corpus == 'common_crawl':
             self.TEXT.build_vocab(self.train, vectors="glove.840B.300d")
+            config.emb_dim = 300  # change the config emb dimension
         else:
             self.TEXT.build_vocab(self.train, vectors="glove.6B.{}d".format(config.emb_dim))
         self.is_vocab_bulit = True
