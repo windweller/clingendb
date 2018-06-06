@@ -461,14 +461,25 @@ class Trainer(object):
         micro_p, micro_r, micro_f1 = np.average(p, weights=s), np.average(r, weights=s), np.average(f1, weights=s)
 
         # compute Macro-F1 here
+        # if is_external:
+        #     # include clinical finding
+        #     macro_p, macro_r, macro_f1 = np.average(p[14:]), np.average(r[14:]), np.average(f1[14:])
+        # else:
+        #     # anything > 10
+        #     macro_p, macro_r, macro_f1 = np.average(np.take(p, [12] + range(21, 42))), \
+        #                                  np.average(np.take(r, [12] + range(21, 42))), \
+        #                                  np.average(np.take(f1, [12] + range(21, 42)))
+
+        # we switch to non-zero macro computing, this can figure out boost from rarest labels
         if is_external:
             # include clinical finding
-            macro_p, macro_r, macro_f1 = np.average(p[14:]), np.average(r[14:]), np.average(f1[14:])
+            macro_p, macro_r, macro_f1 = np.average(p[p.nonzero()]), np.average(r[r.nonzero()]), \
+                                         np.average(f1[f1.nonzero()])
         else:
             # anything > 10
-            macro_p, macro_r, macro_f1 = np.average(np.take(p, [12] + range(21, 42))), \
-                                         np.average(np.take(r, [12] + range(21, 42))), \
-                                         np.average(np.take(f1, [12] + range(21, 42)))
+            macro_p, macro_r, macro_f1 = np.average(p[p.nonzero()]), \
+                                         np.average(r[r.nonzero()]), \
+                                         np.average(f1[f1.nonzero()])
 
         return em, (micro_p, micro_r, micro_f1), (macro_p, macro_r, macro_f1)
 
@@ -478,7 +489,6 @@ class Trainer(object):
 # config also manages random seed. So it's possible to just swap in and out random seed from config
 # to run an average, can write it into another function inside Experiment class called `repeat_execute()`
 # also, currently once trainer is deleted, the classifier pointer would be lost...completely
-# TODO: allow test() and evaluate() to return by-label p/r/f1
 class Experiment(object):
     def __init__(self, dataset, exp_save_path):
         """
