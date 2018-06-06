@@ -592,24 +592,28 @@ class Experiment(object):
 
 
 def run_baseline(device):
+    random.setstate(orig_state)
     lstm_base_c = LSTMBaseConfig()
     trainer = curr_exp.get_trainer(config=lstm_base_c, device=device, build_vocab=True)
     curr_exp.execute(trainer=trainer)
 
 
 def run_bidir_baseline(device):
+    random.setstate(orig_state)
     lstm_bidir_c = LSTMBaseConfig(bidir=True)
     trainer = curr_exp.get_trainer(config=lstm_bidir_c, device=device, build_vocab=True)
     curr_exp.execute(trainer=trainer)
 
 
 def run_m_penalty(device, beta=1e-3, bidir=False):
+    random.setstate(orig_state)
     config = LSTM_w_M_Config(beta, bidir=bidir)
     trainer = curr_exp.get_trainer(config=config, device=device, build_vocab=True)
     curr_exp.execute(trainer=trainer)
 
 
 def run_c_penalty(device, sigma_M, sigma_B, sigma_W, bidir=False):
+    random.setstate(orig_state)
     config = LSTM_w_C_Config(sigma_M, sigma_B, sigma_W, bidir=bidir)
     trainer = curr_exp.get_trainer(config=config, device=device, build_vocab=True)
     curr_exp.execute(trainer=trainer)
@@ -619,6 +623,9 @@ def run_c_penalty(device, sigma_M, sigma_B, sigma_W, bidir=False):
 if __name__ == '__main__':
     # if we just call this file, it will set up an interactive console
     random.seed(1234)
+
+    # we get the original random state, and simply reset during each run
+    orig_state = random.getstate()
 
     action = raw_input("enter branches of default actions: active | baseline | meta | cluster \n")
 
