@@ -537,6 +537,7 @@ class Experiment(object):
         torch.manual_seed(seed)
         np.random.seed(seed)
         random.seed(seed)
+        torch.cuda.manual_seed_all(config.seed)  # need to seed cuda too
 
     def config_to_string(self, config):
         # we compare config to baseline config, if values are modified, we produce it into string
