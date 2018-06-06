@@ -634,8 +634,8 @@ if __name__ == '__main__':
         run_bidir_baseline(device_num)
 
         # baseline LSTM + M + bidir
-        run_m_penalty(device_num, beta=1e-3, bidir=True)
         run_m_penalty(device_num, beta=1e-4, bidir=True)
+        run_m_penalty(device_num, beta=1e-3, bidir=True)
 
         run_c_penalty(device_num, sigma_M=1e-5, sigma_B=1e-4, sigma_W=1e-4, bidir=True)
         run_c_penalty(device_num, sigma_M=1e-4, sigma_B=1e-3, sigma_W=1e-3, bidir=True)
