@@ -83,7 +83,7 @@ class Config(dict):
 class LSTMBaseConfig(Config):
     def __init__(self, emb_dim=100, hidden_size=512, depth=1, label_size=42, bidir=False,
                  c=False, m=False, dropout=0.2, emb_update=True, clip_grad=5., seed=1234,
-                 rand_unk=True, run_name="default",
+                 rand_unk=True, run_name="default", emb_corpus="gigaword",
                  **kwargs):
         # run_name: the folder for the trainer
         super(LSTMBaseConfig, self).__init__(emb_dim=emb_dim,
@@ -99,6 +99,7 @@ class LSTMBaseConfig(Config):
                                              seed=seed,
                                              rand_unk=rand_unk,
                                              run_name=run_name,
+                                             emb_corpus=emb_corpus,
                                              **kwargs)
 
 
@@ -208,7 +209,10 @@ class Dataset(object):
                 running_norm / num_non_zero, num_non_zero, total_words))  # directly printing into Jupyter Notebook
 
     def build_vocab(self, config, silent=False):
-        self.TEXT.build_vocab(self.train, vectors="glove.6B.{}d".format(config.emb_dim))
+        if config.emb_corpus == 'common_crawl':
+            self.TEXT.build_vocab(self.train, vectors="glove.840B.300d")
+        else:
+            self.TEXT.build_vocab(self.train, vectors="glove.6B.{}d".format(config.emb_dim))
         self.is_vocab_bulit = True
         self.vocab = self.TEXT.vocab
         if config.rand_unk:
@@ -591,30 +595,32 @@ class Experiment(object):
                                     append=True, config=trainer.config)
 
 
+# Important! Each time you use "get_iterators", must restore previous random state
+# otherwise the sampling procedure will be different
 def run_baseline(device):
     random.setstate(orig_state)
-    lstm_base_c = LSTMBaseConfig()
+    lstm_base_c = LSTMBaseConfig(emb_corpus=emb_corpus)
     trainer = curr_exp.get_trainer(config=lstm_base_c, device=device, build_vocab=True)
     curr_exp.execute(trainer=trainer)
 
 
 def run_bidir_baseline(device):
     random.setstate(orig_state)
-    lstm_bidir_c = LSTMBaseConfig(bidir=True)
+    lstm_bidir_c = LSTMBaseConfig(bidir=True, emb_corpus=emb_corpus)
     trainer = curr_exp.get_trainer(config=lstm_bidir_c, device=device, build_vocab=True)
     curr_exp.execute(trainer=trainer)
 
 
 def run_m_penalty(device, beta=1e-3, bidir=False):
     random.setstate(orig_state)
-    config = LSTM_w_M_Config(beta, bidir=bidir)
+    config = LSTM_w_M_Config(beta, bidir=bidir, emb_corpus=emb_corpus)
     trainer = curr_exp.get_trainer(config=config, device=device, build_vocab=True)
     curr_exp.execute(trainer=trainer)
 
 
 def run_c_penalty(device, sigma_M, sigma_B, sigma_W, bidir=False):
     random.setstate(orig_state)
-    config = LSTM_w_C_Config(sigma_M, sigma_B, sigma_W, bidir=bidir)
+    config = LSTM_w_C_Config(sigma_M, sigma_B, sigma_W, bidir=bidir, emb_corpus=emb_corpus)
     trainer = curr_exp.get_trainer(config=config, device=device, build_vocab=True)
     curr_exp.execute(trainer=trainer)
 
@@ -639,6 +645,8 @@ if __name__ == '__main__':
     dataset = Dataset()
 
     curr_exp = Experiment(dataset=dataset, exp_save_path='./{}/'.format(exp_name))
+    emb_corpus = raw_input("enter embedding choice: gigaword | common_crawl \n")
+    assert emb_corpus == 'gigaword' or emb_corpus == 'common_crawl'
 
     if action == 'active':
         import IPython; IPython.embed()
