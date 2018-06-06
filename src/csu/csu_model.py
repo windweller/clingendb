@@ -422,11 +422,13 @@ class Trainer(object):
         # save model
         torch.save(self.classifier, pjoin(self.save_path, 'model.pickle'))
 
-    def test(self, silent=False, return_by_label_stats=False):
+    def test(self, silent=False, return_by_label_stats=False, return_instances=False):
         self.logger.info("compute test set performance...")
-        return self.evaluate(is_test=True, silent=silent, return_by_label_stats=return_by_label_stats)
+        return self.evaluate(is_test=True, silent=silent, return_by_label_stats=return_by_label_stats,
+                             return_instances=return_instances)
 
-    def evaluate(self, is_test=False, is_external=False, silent=False, return_by_label_stats=False):
+    def evaluate(self, is_test=False, is_external=False, silent=False, return_by_label_stats=False,
+                 return_instances=False):
         self.classifier.eval()
         data_iter = self.test_iter if is_test else self.val_iter  # evaluate on CSU
         data_iter = self.external_test_iter if is_external else data_iter  # evaluate on adobe
@@ -453,6 +455,8 @@ class Trainer(object):
 
         if return_by_label_stats:
             return p, r, f1, s
+        elif return_instances:
+            return ys, preds
 
         micro_p, micro_r, micro_f1 = np.average(p, weights=s), np.average(r, weights=s), np.average(f1, weights=s)
 
