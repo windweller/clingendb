@@ -465,6 +465,7 @@ if __name__ == '__main__':
     dataset.build_vocab(config=config)
 
     model = make_model(dataset.vocab, label_size=42, d_model=150, h=10, config=config, N=4)
+    print model
 
     trainer = Trainer(model, dataset, config, './csu_attn_try', device=3)
     trainer.train(5)
