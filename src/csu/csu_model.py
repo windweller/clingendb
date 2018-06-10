@@ -83,7 +83,7 @@ class Config(dict):
 class LSTMBaseConfig(Config):
     def __init__(self, emb_dim=100, hidden_size=512, depth=1, label_size=42, bidir=False,
                  c=False, m=False, dropout=0.2, emb_update=True, clip_grad=5., seed=1234,
-                 rand_unk=True, run_name="default", emb_corpus="gigaword",
+                 rand_unk=True, run_name="default", emb_corpus="gigaword", avg_run_times=1,
                  **kwargs):
         # run_name: the folder for the trainer
         super(LSTMBaseConfig, self).__init__(emb_dim=emb_dim,
@@ -100,6 +100,7 @@ class LSTMBaseConfig(Config):
                                              rand_unk=rand_unk,
                                              run_name=run_name,
                                              emb_corpus=emb_corpus,
+                                             avg_run_times=avg_run_times,
                                              **kwargs)
 
 
@@ -338,12 +339,13 @@ class MetaLoss(nn.Module):
 # Each trainer is associated with a config and classifier actually...so should be associated with a log
 # Experiment class will create a central folder, and it will have sub-folder for each trainer
 # central folder will have an overall summary...(Experiment will also have ways to do 5 random seed exp)
+# TODO: if we run 5 times...the classifier can't be like this...
 class Trainer(object):
     def __init__(self, classifier, dataset, config, save_path, device, load=False,
                  **kwargs):
         # save_path: where to save log and model
         if load:
-            self.classifier = torch.load(pjoin(save_path, 'model.pickle')).cuda(device)
+            self.classifier = torch.load(pjoin(save_path, 'model-0.pickle')).cuda(device)
         else:
             self.classifier = classifier.cuda(device)
 
@@ -378,7 +380,10 @@ class Trainer(object):
 
         self.logger.info(config)
 
-    def train(self, epochs=5, no_print=True):
+    def load(self, run_order):
+        self.classifier = torch.load(pjoin(self.save_path, 'model-{}.pickle').format(run_order)).cuda(self.device)
+
+    def train(self, run_order=0, epochs=5, no_print=True):
         # train loop
         exp_cost = None
         for e in range(epochs):
@@ -425,14 +430,14 @@ class Trainer(object):
             ))
 
         # save model
-        torch.save(self.classifier, pjoin(self.save_path, 'model.pickle'))
+        torch.save(self.classifier, pjoin(self.save_path, 'model-{}.pickle'.format(run_order)))
 
     def test(self, silent=False, return_by_label_stats=False, return_instances=False):
         self.logger.info("compute test set performance...")
         return self.evaluate(is_test=True, silent=silent, return_by_label_stats=return_by_label_stats,
                              return_instances=return_instances)
 
-    def evaluate(self, is_test=False, is_external=False, silent=False, return_by_label_stats=False,
+    def evaluate(self, run_order=0, is_test=False, is_external=False, silent=False, return_by_label_stats=False,
                  return_instances=False):
         self.classifier.eval()
         data_iter = self.test_iter if is_test else self.val_iter  # evaluate on CSU
@@ -505,6 +510,7 @@ class Experiment(object):
 
         self.dataset = dataset
         self.exp_save_path = exp_save_path
+        self.saved_random_states = [49537527, 50069528, 44150907, 25982144, 12302344]
 
         # we never want to overwrite this file
         if not os.path.exists(pjoin(exp_save_path, "all_runs_stats.csv")):
@@ -539,6 +545,14 @@ class Experiment(object):
         random.seed(seed)
         torch.cuda.manual_seed_all(config.seed)  # need to seed cuda too
 
+    # I'm not sure if after setting random seed, should we set random state again...
+    def set_run_random_seed(self, run_order):
+        seed = self.saved_random_states[run_order]
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+        random.seed(seed)
+        torch.cuda.manual_seed_all(seed)
+
     def config_to_string(self, config):
         # we compare config to baseline config, if values are modified, we produce it into string
         model_name = "mod"  # this will be the "baseline"
@@ -569,8 +583,30 @@ class Experiment(object):
                                  pp_em, pp_micro_tup[0], pp_micro_tup[1], pp_micro_tup[2],
                                  pp_macro_tup[0], pp_macro_tup[1], pp_macro_tup[2]])
 
-    def execute(self, trainer, append=True):
+    def record_per_run_result(self, meta_results, append, trainer_path, run_order, print_header=False):
+        mode = 'a' if append else 'w'
+
+        csu_em, csu_micro_tup, csu_macro_tup, \
+        pp_em, pp_micro_tup, pp_macro_tup = meta_results
+
+        with open(pjoin(trainer_path, "avg_run_stats.csv"), mode=mode) as f:
+            csv_writer = csv.writer(f)
+            if print_header:
+                csv_writer.writerow(['run order', 'CSU EM', 'CSU micro-P', 'CSU micro-R', 'CSU micro-F1',
+                                     'CSU macro-P', 'CSU macro-R', 'CSU macro-F1',
+                                     'PP EM', 'PP micro-P', 'PP micro-R', 'PP micro-F1',
+                                     'PP macro-P', 'PP macro-R', 'PP macro-F1'])
+
+            csv_writer.writerow(['runtime_{}'.format(run_order), csu_em, csu_micro_tup[0],
+                                 csu_micro_tup[1], csu_micro_tup[2],
+                                 csu_macro_tup[0], csu_macro_tup[1], csu_macro_tup[2],
+                                 pp_em, pp_micro_tup[0], pp_micro_tup[1], pp_micro_tup[2],
+                                 pp_macro_tup[0], pp_macro_tup[1], pp_macro_tup[2]])
+
+    def execute_trainer(self, trainer, append=True):
+        # used jointly with `get_trainer()`
         # the benefit of this function is it will record meta-result into a file...
+        # use this to "evaluate" a model
         trainer.train()
         csu_em, csu_micro_tup, csu_macro_tup = trainer.test()
         trainer.logger.info("===== Evaluating on PP data =====")
@@ -580,12 +616,62 @@ class Experiment(object):
                                  pp_em, pp_micro_tup, pp_macro_tup],
                                 append=append, config=trainer.config)
 
+    def compute_agg_avg(self, agg_stats):
+        avg_em = np.average([t[0] for t in agg_stats])
+
+
+    def execute(self, config, device, append=True):
+        # combined get_trainer() and execute_trainer()
+        # this is also "training"...not evaluating
+        agg_csu_ems, agg_pp_ems = [], []
+        agg_csu_micro_tup, agg_csu_macro_tup = [], []
+        agg_pp_micro_tup, agg_pp_macro_tup = [], []
+
+        self.dataset.build_vocab(config, True)
+        trainer_folder = config.run_name if config.run_name != 'default' else self.config_to_string(config)
+
+        for run_order in range(config.avg_run_times):
+
+            self.set_run_random_seed(run_order)  # hopefully this is enough...
+
+            classifier = Classifier(self.dataset.vocab, config)
+            trainer = Trainer(classifier, self.dataset, config,
+                              save_path=pjoin(self.exp_save_path, trainer_folder),
+                              device=device)
+
+            trainer.train(run_order)
+            csu_em, csu_micro_tup, csu_macro_tup = trainer.test()
+
+            trainer.logger.info("===== Evaluating on PP data =====")
+            pp_em, pp_micro_tup, pp_macro_tup = trainer.evaluate(is_external=True)
+            trainer.logger.info("PP accuracy = {}".format(pp_em))
+
+            print_header = run_order == 0
+
+            self.record_per_run_result([csu_em, csu_micro_tup, csu_macro_tup,
+                                        pp_em, pp_micro_tup, pp_macro_tup],
+                                       append=append, trainer_path=trainer.save_path, run_order=run_order,
+                                       print_header=print_header)
+
+            agg_csu_ems.append(csu_em); agg_pp_ems.append(pp_em)
+            agg_csu_micro_tup.append(np.array(csu_micro_tup)); agg_csu_macro_tup.append(np.array(csu_macro_tup))
+            agg_pp_micro_tup.append(np.array(pp_micro_tup)); agg_pp_macro_tup.append(np.array(pp_macro_tup))
+
+        csu_avg_em, pp_avg_em = np.average(agg_csu_ems), np.average(agg_pp_ems)
+        csu_avg_micro, csu_avg_macro = np.average(agg_csu_micro_tup, axis=0).tolist(), np.average(agg_csu_macro_tup, axis=0).tolist()
+        pp_avg_micro, pp_avg_macro = np.average(agg_pp_micro_tup, axis=0).tolist(), np.average(agg_pp_macro_tup, axis=0).tolist()
+
+        self.record_meta_result([csu_avg_em, csu_avg_micro, csu_avg_macro,
+                                 pp_avg_em, pp_avg_micro, pp_avg_macro],
+                                append=append, config=config)
+
     def delete_trainer(self, trainer):
         # move all parameters to cpu and then delete the pointer
         trainer.classifier.cpu()
         del trainer.classifier
         del trainer
 
+    # TODO: rewrite this function to evaluate multi-run model
     def re_execute(self, trainer, write_to_meta=False):
         # load in previous model in get_trainer(), and just get results, no recording
         csu_em, csu_micro_tup, csu_macro_tup = trainer.test(silent=True)
@@ -601,33 +687,39 @@ class Experiment(object):
 # otherwise the sampling procedure will be different
 def run_baseline(device):
     random.setstate(orig_state)
-    lstm_base_c = LSTMBaseConfig(emb_corpus=emb_corpus)
-    trainer = curr_exp.get_trainer(config=lstm_base_c, device=device, build_vocab=True)
-    curr_exp.execute(trainer=trainer)
+    lstm_base_c = LSTMBaseConfig(emb_corpus=emb_corpus, avg_run_times=avg_run_times)
+    curr_exp.execute(lstm_base_c, device=device)
+    # trainer = curr_exp.get_trainer(config=lstm_base_c, device=device, build_vocab=True)
+    # curr_exp.execute(trainer=trainer)
 
 
 def run_bidir_baseline(device):
     random.setstate(orig_state)
-    lstm_bidir_c = LSTMBaseConfig(bidir=True, emb_corpus=emb_corpus)
-    trainer = curr_exp.get_trainer(config=lstm_bidir_c, device=device, build_vocab=True)
-    curr_exp.execute(trainer=trainer)
+    lstm_bidir_c = LSTMBaseConfig(bidir=True, emb_corpus=emb_corpus, avg_run_times=avg_run_times)
+    curr_exp.execute(lstm_bidir_c, device=device)
+    # trainer = curr_exp.get_trainer(config=lstm_bidir_c, device=device, build_vocab=True)
+    # curr_exp.execute(trainer=trainer)
 
 
 def run_m_penalty(device, beta=1e-3, bidir=False):
     random.setstate(orig_state)
-    config = LSTM_w_M_Config(beta, bidir=bidir, emb_corpus=emb_corpus)
-    trainer = curr_exp.get_trainer(config=config, device=device, build_vocab=True)
-    curr_exp.execute(trainer=trainer)
+    config = LSTM_w_M_Config(beta, bidir=bidir, emb_corpus=emb_corpus, avg_run_times=avg_run_times)
+    curr_exp.execute(config, device=device)
+    # trainer = curr_exp.get_trainer(config=config, device=device, build_vocab=True)
+    # curr_exp.execute(trainer=trainer)
 
 
 def run_c_penalty(device, sigma_M, sigma_B, sigma_W, bidir=False):
     random.setstate(orig_state)
-    config = LSTM_w_C_Config(sigma_M, sigma_B, sigma_W, bidir=bidir, emb_corpus=emb_corpus)
-    trainer = curr_exp.get_trainer(config=config, device=device, build_vocab=True)
-    curr_exp.execute(trainer=trainer)
+    config = LSTM_w_C_Config(sigma_M, sigma_B, sigma_W, bidir=bidir, emb_corpus=emb_corpus, avg_run_times=avg_run_times)
+    curr_exp.execute(config, device=device)
+    # trainer = curr_exp.get_trainer(config=config, device=device, build_vocab=True)
+    # curr_exp.execute(trainer=trainer)
 
 
 # TODO: maybe code in multi-run support (over many random seeds)
+# TODO: multi-run support
+# TODO: 1.
 if __name__ == '__main__':
     # if we just call this file, it will set up an interactive console
     random.seed(1234)
@@ -643,8 +735,13 @@ if __name__ == '__main__':
     exp_name = raw_input("enter the experiment name, default is 'csu_new_exp', skip to use default: ")
     exp_name = 'csu_new_exp' if exp_name.strip() == '' else exp_name
 
-    emb_corpus = raw_input("enter embedding choice: gigaword | common_crawl \n")
+    emb_corpus = raw_input("enter embedding choice, skip for default: gigaword | common_crawl \n")
+    emb_corpus = 'gigaword' if emb_corpus.strip() == '' else emb_corpus
     assert emb_corpus == 'gigaword' or emb_corpus == 'common_crawl'
+
+    avg_run_times = raw_input("enter run times (intger), maximum 5: \n")  # default 1, but should run 5 times
+    avg_run_times = 1 if avg_run_times.strip() == '' else int(avg_run_times)
+    avg_run_times = 5 if avg_run_times > 5 else avg_run_times
 
     print("loading in dataset...will take 3-4 minutes...")
     dataset = Dataset()
