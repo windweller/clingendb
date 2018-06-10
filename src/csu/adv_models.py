@@ -140,11 +140,11 @@ class PositionwiseFeedForward(nn.Module):
 
 
 class Embeddings(nn.Module):
-    def __init__(self, d_model, vocab):
+    def __init__(self, d_model, vocab, config):
         # this vocab will be our vocab project from Dataset
         super(Embeddings, self).__init__()
-        self.lut = nn.Embedding(len(vocab), d_model)
-        self.lut.weight.data.copy_(vocab.vectors)
+        self.lut = nn.Embedding(len(vocab), d_model) # config.emb_dim)
+        # self.lut.weight.data.copy_(vocab.vectors)
         self.d_model = d_model
 
     def forward(self, x):
@@ -209,7 +209,7 @@ class Generator(nn.Module):
         return F.log_softmax(self.proj(x), dim=-1)
 
 
-def make_model(src_vocab, label_size, N=6,
+def make_model(src_vocab, label_size, config, N=6,
                d_model=512, d_ff=2048, h=8, dropout=0.1):
     "Helper: Construct a model from hyperparameters."
     # src_vocab: needs to be a PyTorch vocab object
@@ -219,7 +219,7 @@ def make_model(src_vocab, label_size, N=6,
     position = PositionalEncoding(d_model, dropout)
     model = Classifier(
         Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
-        nn.Sequential(Embeddings(d_model, src_vocab), c(position)),
+        nn.Sequential(Embeddings(d_model, src_vocab, config), c(position)),
         Generator(d_model, label_size))
 
     # This was important from their code.
@@ -243,4 +243,4 @@ if __name__ == '__main__':
 
     dataset.build_vocab(config=config)
 
-    make_model(dataset.vocab, label_size=42, N=4)
+    make_model(dataset.vocab, label_size=42, d_model=100, config=config, N=4)
