@@ -144,7 +144,7 @@ class Embeddings(nn.Module):
         # this vocab will be our vocab project from Dataset
         super(Embeddings, self).__init__()
         self.lut = nn.Embedding(len(vocab), d_model)
-        self.embed.weight.data.copy_(vocab.vectors)
+        self.lut.weight.data.copy_(vocab.vectors)
         self.d_model = d_model
 
     def forward(self, x):
@@ -239,7 +239,7 @@ if __name__ == '__main__':
 
     print("loading in dataset...will take 3-4 minutes...")
     dataset = Dataset()
-    config = LSTMBaseConfig
+    config = LSTMBaseConfig()
 
     dataset.build_vocab(config=config)
 
