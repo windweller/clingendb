@@ -330,10 +330,10 @@ class Trainer(object):
 
         bce_loss = nn.BCEWithLogitsLoss()
 
-        self.optimizer = NoamOpt(self.classifier.src_embed[0].d_model, 1, 400,
+        self.model_opt = NoamOpt(self.classifier.src_embed[0].d_model, 1, 400,
                             torch.optim.Adam(self.classifier.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
 
-        self.loss_compute = SimpleLossCompute(self.classifier.generator, criterion=bce_loss, opt=self.optimizer)
+        self.loss_compute = SimpleLossCompute(self.classifier.generator, criterion=bce_loss, opt=self.model_opt)
 
         # need_grad = lambda x: x.requires_grad
         # self.optimizer = optim.Adam(
@@ -385,12 +385,12 @@ class Trainer(object):
 
                 if iter % 100 == 0:
                     self.logger.info(
-                        "iter {} lr={} train_loss={} exp_cost={} \n".format(iter, self.optimizer.param_groups[0]['lr'],
+                        "iter {} lr={} train_loss={} exp_cost={} \n".format(iter, self.model_opt.optimizer.param_groups[0]['lr'],
                                                                             loss.data[0], exp_cost))
             self.logger.info("enter validation...")
             valid_em, micro_tup, macro_tup = self.evaluate(is_test=False)
             self.logger.info("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
-                e + 1, self.optimizer.param_groups[0]['lr'], loss.data[0], valid_em
+                e + 1, self.model_opt.optimizer.param_groups[0]['lr'], loss.data[0], valid_em
             ))
 
         # save model
