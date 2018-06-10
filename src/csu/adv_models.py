@@ -3,9 +3,17 @@ import torch.nn as nn
 import torch
 import math
 import random
+import time
+import os
+import logging
 
 import torch.nn.functional as F
 from torch.autograd import Variable
+
+from sklearn import metrics
+import numpy as np
+
+from os.path import join as pjoin
 
 # we will just train this :)
 
@@ -143,7 +151,7 @@ class Embeddings(nn.Module):
     def __init__(self, d_model, vocab, config):
         # this vocab will be our vocab project from Dataset
         super(Embeddings, self).__init__()
-        self.lut = nn.Embedding(len(vocab), d_model) # config.emb_dim)
+        self.lut = nn.Embedding(len(vocab), d_model)  # config.emb_dim)
         # self.lut.weight.data.copy_(vocab.vectors)
         self.d_model = d_model
 
@@ -186,16 +194,12 @@ class Classifier(nn.Module):
         self.src_embed = src_embed
         self.generator = generator
 
-    def forward(self, src, tgt, src_mask, tgt_mask):
+    def forward(self, src, src_mask):
         "Take in and process masked src and target sequences."
-        return self.decode(self.encode(src, src_mask), src_mask,
-                           tgt, tgt_mask)
+        return self.encode(src, src_mask)
 
     def encode(self, src, src_mask):
         return self.encoder(self.src_embed(src), src_mask)
-
-    def decode(self, memory, src_mask, tgt, tgt_mask):
-        return self.decoder(self.tgt_embed(tgt), memory, src_mask, tgt_mask)
 
 
 class Generator(nn.Module):
@@ -230,6 +234,223 @@ def make_model(src_vocab, label_size, config, N=6,
     return model
 
 
+class NoamOpt:
+    "Optim wrapper that implements rate."
+
+    def __init__(self, model_size, factor, warmup, optimizer):
+        self.optimizer = optimizer
+        self._step = 0
+        self.warmup = warmup
+        self.factor = factor
+        self.model_size = model_size
+        self._rate = 0
+
+    def step(self):
+        "Update parameters and rate"
+        self._step += 1
+        rate = self.rate()
+        for p in self.optimizer.param_groups:
+            p['lr'] = rate
+        self._rate = rate
+        self.optimizer.step()
+
+    def rate(self, step=None):
+        "Implement `lrate` above"
+        if step is None:
+            step = self._step
+        return self.factor * \
+               (self.model_size ** (-0.5) *
+                min(step ** (-0.5), step * self.warmup ** (-1.5)))
+
+
+def get_std_opt(model):
+    return NoamOpt(model.src_embed[0].d_model, 2, 2000,
+                   torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
+
+
+class SimpleLossCompute:
+    "A simple loss compute and train function."
+
+    def __init__(self, generator, criterion, opt=None):
+        self.generator = generator
+        self.criterion = criterion
+        self.opt = opt
+
+    def __call__(self, x, y):
+        x = self.generator(x)
+        loss = self.criterion(x.contiguous().view(-1, x.size(-1)),
+                              y.contiguous().view(-1))
+        loss.backward()
+        if self.opt is not None:
+            self.opt.step()
+            self.opt.optimizer.zero_grad()
+        return loss.data[0]
+
+
+def run_epoch(data_iter, model, loss_compute):
+    "Standard Training and Logging Function"
+    pad = 0  # padding in PyTorch is marked as 0
+    start = time.time()
+    total_batches = 0
+    total_loss = 0
+    for i, data in enumerate(data_iter):
+        (x, x_lengths), y = data.Text, data.Description
+        x_mask = (x != pad).unsqueeze(-2)
+        out = model.forward(x, x_mask)
+        loss = loss_compute(out, y)
+        total_loss += loss
+        if i % 50 == 1:
+            elapsed = time.time() - start
+            print("Epoch Step: %d Loss: %f Tokens per Sec: %f" %
+                  (i, loss.data[0], total_batches / elapsed))
+            start = time.time()
+    return total_loss / total_batches
+
+class Trainer(object):
+    def __init__(self, classifier, dataset, config, save_path, device, load=False,
+                 **kwargs):
+        # save_path: where to save log and model
+        if load:
+            self.classifier = torch.load(pjoin(save_path, 'model.pickle')).cuda(device)
+        else:
+            self.classifier = classifier.cuda(device)
+
+        self.dataset = dataset
+        self.device = device
+        self.config = config
+        self.save_path = save_path
+
+        self.train_iter, self.val_iter, self.test_iter = self.dataset.get_iterators(device)
+        self.external_test_iter = self.dataset.get_test_iterator(device)
+
+        # if config.m:
+        #     self.aux_loss = MetaLoss(config, **kwargs)
+        # elif config.c:
+        #     self.aux_loss = ClusterLoss(config, **kwargs)
+
+        bce_loss = nn.BCEWithLogitsLoss()
+
+        self.optimizer = NoamOpt(self.classifier.src_embed[0].d_model, 1, 400,
+                            torch.optim.Adam(self.classifier.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
+
+        self.loss_compute = SimpleLossCompute(self.classifier.generator, criterion=bce_loss, opt=self.optimizer)
+
+        # need_grad = lambda x: x.requires_grad
+        # self.optimizer = optim.Adam(
+        #     filter(need_grad, classifier.parameters()),
+        #     lr=0.001)  # obviously we could use config to control this
+
+        # setting up logging
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+        logging.basicConfig(format='[%(asctime)s] %(levelname)s: %(message)s',
+                            datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+        file_handler = logging.FileHandler("{0}/log.txt".format(save_path))
+        self.logger = logging.getLogger(save_path.split('/')[-1])  # so that no model is sharing logger
+        self.logger.addHandler(file_handler)
+
+        self.logger.info(config)
+
+    def train(self, epochs=5, no_print=True):
+        pad = 0.
+
+        # train loop
+        exp_cost = None
+        for e in range(epochs):
+            self.classifier.train()
+            for iter, data in enumerate(self.train_iter):
+                self.classifier.zero_grad()
+                # (x, x_lengths), y = data.Text, data.Description
+
+                # output_vec = self.classifier.get_vectors(x, x_lengths)  # this is just logit (before calling sigmoid)
+                # final_rep = torch.max(output_vec, 0)[0].squeeze(0)
+                # logits = self.classifier.get_logits(output_vec)
+
+                (x, x_lengths), y = data.Text, data.Description
+                x_mask = (x != pad).unsqueeze(-2)
+                out = self.classifier.forward(x, x_mask)
+                loss = self.loss_compute(out, y)  # loss.backward() and opt.step() is called inside
+
+                # batch_size = x.size(0)
+
+                # loss.backward()
+
+                # torch.nn.utils.clip_grad_norm(self.classifier.parameters(), self.config.clip_grad)
+                # self.optimizer.step()
+
+                if not exp_cost:
+                    exp_cost = loss.data[0]
+                else:
+                    exp_cost = 0.99 * exp_cost + 0.01 * loss.data[0]
+
+                if iter % 100 == 0:
+                    self.logger.info(
+                        "iter {} lr={} train_loss={} exp_cost={} \n".format(iter, self.optimizer.param_groups[0]['lr'],
+                                                                            loss.data[0], exp_cost))
+            self.logger.info("enter validation...")
+            valid_em, micro_tup, macro_tup = self.evaluate(is_test=False)
+            self.logger.info("epoch {} lr={:.6f} train_loss={:.6f} valid_acc={:.6f}\n".format(
+                e + 1, self.optimizer.param_groups[0]['lr'], loss.data[0], valid_em
+            ))
+
+        # save model
+        torch.save(self.classifier, pjoin(self.save_path, 'model.pickle'))
+
+    def test(self, silent=False, return_by_label_stats=False, return_instances=False):
+        self.logger.info("compute test set performance...")
+        return self.evaluate(is_test=True, silent=silent, return_by_label_stats=return_by_label_stats,
+                             return_instances=return_instances)
+
+    def evaluate(self, is_test=False, is_external=False, silent=False, return_by_label_stats=False,
+                 return_instances=False):
+        self.classifier.eval()
+        data_iter = self.test_iter if is_test else self.val_iter  # evaluate on CSU
+        data_iter = self.external_test_iter if is_external else data_iter  # evaluate on adobe
+
+        all_preds, all_y_labels = [], []
+        pad = 0.
+
+        for iter, data in enumerate(data_iter):
+            (x, x_lengths), y = data.Text, data.Description
+
+            x_mask = (x != pad).unsqueeze(-2)
+
+            logits = self.classifier.generator(self.classifier(x, x_mask))
+
+            preds = (torch.sigmoid(logits) > 0.5).data.cpu().numpy().astype(float)
+            all_preds.append(preds)
+            all_y_labels.append(y.data.cpu().numpy())
+
+        preds = np.vstack(all_preds)
+        ys = np.vstack(all_y_labels)
+
+        if not silent:
+            self.logger.info("\n" + metrics.classification_report(ys, preds, digits=3))  # write to file
+
+        # this is actually the accurate exact match
+        em = metrics.accuracy_score(ys, preds)
+        p, r, f1, s = metrics.precision_recall_fscore_support(ys, preds, average=None)
+
+        if return_by_label_stats:
+            return p, r, f1, s
+        elif return_instances:
+            return ys, preds
+
+        micro_p, micro_r, micro_f1 = np.average(p, weights=s), np.average(r, weights=s), np.average(f1, weights=s)
+
+        # we switch to non-zero macro computing, this can figure out boost from rarest labels
+        if is_external:
+            # include clinical finding
+            macro_p, macro_r, macro_f1 = np.average(p[p.nonzero()]), np.average(r[r.nonzero()]), \
+                                         np.average(f1[f1.nonzero()])
+        else:
+            # anything > 10
+            macro_p, macro_r, macro_f1 = np.average(p[p.nonzero()]), \
+                                         np.average(r[r.nonzero()]), \
+                                         np.average(f1[f1.nonzero()])
+
+        return em, (micro_p, micro_r, micro_f1), (macro_p, macro_r, macro_f1)
+
 if __name__ == '__main__':
     # if we just call this file, it will set up an interactive console
     random.seed(1234)
@@ -243,4 +464,10 @@ if __name__ == '__main__':
 
     dataset.build_vocab(config=config)
 
-    make_model(dataset.vocab, label_size=42, d_model=100, config=config, N=4)
+    model = make_model(dataset.vocab, label_size=42, d_model=150, h=10, config=config, N=4)
+
+    trainer = Trainer(model, dataset, config, './csu_attn_try', device=3)
+    trainer.train(5)
+    trainer.evaluate(is_test=True)
+    logging.info("testing external!")
+    trainer.evaluate(is_external=True)
