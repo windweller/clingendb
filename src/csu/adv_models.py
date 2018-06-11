@@ -234,7 +234,8 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         self.layers = clones(layer, N)
         self.norm = LayerNorm(layer.size)
-        self.dec_token = nn.Parameter(torch.randn(layer.size))  # will be learned
+        # simulate (batch_size, time_dim, hidden_size)...not sure if it will work
+        self.dec_token = nn.Parameter(torch.randn(1, 1, layer.size))  # will be learned
 
     def forward(self, memory, src_mask):
         x = self.dec_token
@@ -331,7 +332,7 @@ class SimpleLossCompute:
 
 def run_epoch(data_iter, model, loss_compute):
     "Standard Training and Logging Function"
-    pad = 0  # padding in PyTorch is marked as 0
+    pad = 1.  # padding in PyTorch is marked as 0
     start = time.time()
     total_batches = 0
     total_loss = 0
@@ -395,7 +396,7 @@ class Trainer(object):
         self.logger.info(config)
 
     def train(self, epochs=5, no_print=True):
-        pad = 0.
+        pad = 1.
 
         # train loop
         exp_cost = None
@@ -410,6 +411,8 @@ class Trainer(object):
                 # logits = self.classifier.get_logits(output_vec)
 
                 (x, x_lengths), y = data.Text, data.Description
+                x = x.transpose(0, 1)  # batch-first (rebatch)
+
                 x_mask = (x != pad).unsqueeze(-2)
                 out = self.classifier.forward(x, x_mask)
                 loss = self.loss_compute(out, y)  # loss.backward() and opt.step() is called inside
@@ -453,11 +456,12 @@ class Trainer(object):
         data_iter = self.external_test_iter if is_external else data_iter  # evaluate on adobe
 
         all_preds, all_y_labels = [], []
-        pad = 0.
+        pad = 1.
 
         for iter, data in enumerate(data_iter):
             (x, x_lengths), y = data.Text, data.Description
 
+            x = x.transpose(0, 1)  # batch-first (rebatch)
             x_mask = (x != pad).unsqueeze(-2)
 
             logits = self.classifier.generator(self.classifier(x, x_mask))
