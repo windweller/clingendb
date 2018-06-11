@@ -565,16 +565,19 @@ if __name__ == '__main__':
     # we get the original random state, and simply reset during each run
     orig_state = random.getstate()
 
+    device_num = int(raw_input("enter the GPU device number \n"))
+    assert -1 <= device_num <= 3, "GPU ID must be between -1 and 3"
+
     print("loading in dataset...will take 3-4 minutes...")
     dataset = Dataset()
     config = LSTMBaseConfig()
 
     dataset.build_vocab(config=config)
 
-    model = make_model(dataset.vocab, label_size=42, d_model=150, h=10, config=config, N=4)
+    model = make_model(dataset.vocab, label_size=42, d_model=100, h=5, config=config, N=2)
     print model
 
-    trainer = Trainer(model, dataset, config, './csu_attn_try', device=3)
+    trainer = Trainer(model, dataset, config, './csu_attn_try', device=device_num)
     trainer.train(5)
     trainer.evaluate(is_test=True)
     logging.info("testing external!")
