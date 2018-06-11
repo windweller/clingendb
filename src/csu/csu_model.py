@@ -345,7 +345,11 @@ class Trainer(object):
                  **kwargs):
         # save_path: where to save log and model
         if load:
-            self.classifier = torch.load(pjoin(save_path, 'model-0.pickle')).cuda(device)
+            # or we can add a new keyword...
+            if os.path.exists(pjoin(save_path, 'model-0.pickle')):
+                self.classifier = torch.load(pjoin(save_path, 'model-0.pickle')).cuda(device)
+            else:
+                self.classifier = torch.load(pjoin(save_path, 'model.pickle')).cuda(device)
         else:
             self.classifier = classifier.cuda(device)
 
