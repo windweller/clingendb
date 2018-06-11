@@ -222,7 +222,7 @@ class Dataset(object):
                 print("initializing random vocabulary")
             self.init_emb(self.vocab, silent=silent)
 
-    def get_iterators(self, device):
+    def get_iterators(self, device, val_batch_size=128):
         if not self.is_vocab_bulit:
             raise Exception("Vocabulary is not built yet..needs to call build_vocab()")
 
@@ -232,7 +232,7 @@ class Dataset(object):
         # only get them after knowing the device (inside trainer or evaluator)
         train_iter, val_iter, test_iter = data.Iterator.splits(
             (self.train, self.val, self.test), sort_key=lambda x: len(x.Text),  # no global sort, but within-batch-sort
-            batch_sizes=(32, 128, 128), device=device,
+            batch_sizes=(32, val_batch_size, val_batch_size), device=device,
             sort_within_batch=True, repeat=False)
 
         return train_iter, val_iter, test_iter

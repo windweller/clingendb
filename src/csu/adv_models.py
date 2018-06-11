@@ -328,13 +328,13 @@ def make_model(src_vocab, config, label_size=42, N=6,
     attn = MultiHeadedAttention(h, d_model)
     ff = PositionwiseFeedForward(d_model, d_ff, dropout)
     position = PositionalEncoding(d_model, dropout)
-    # EncoderDecoder
-    model = Classifier(
+    #  Classifier
+    model = EncoderDecoder(
         Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
-        # Decoder(DecoderLayer(d_model, c(attn), c(attn),
-        #                      c(ff), dropout), N),
+        Decoder(DecoderLayer(d_model, c(attn), c(attn),
+                             c(ff), dropout), N),
         nn.Sequential(Embeddings(d_model, src_vocab, config), c(position)),
-        # nn.Sequential(Embeddings(d_model, [0.], config), c(position)),
+        nn.Sequential(Embeddings(d_model, [0.], config), c(position)),
         Generator(d_model, label_size))
 
     # This was important from their code.
@@ -436,7 +436,7 @@ class Trainer(object):
         self.config = config
         self.save_path = save_path
 
-        self.train_iter, self.val_iter, self.test_iter = self.dataset.get_iterators(device)
+        self.train_iter, self.val_iter, self.test_iter = self.dataset.get_iterators(device, val_batch_size=32)
         self.external_test_iter = self.dataset.get_test_iterator(device)
 
         # if config.m:
@@ -586,8 +586,8 @@ if __name__ == '__main__':
     # we get the original random state, and simply reset during each run
     orig_state = random.getstate()
 
-    warmup = raw_input("enter warmup steps (should be > 2500): \n")
-    warmup = 2500 if warmup.strip() == '' else int(warmup)
+    warmup = raw_input("enter warmup steps (should be > 3000): \n")
+    warmup = 3000 if warmup.strip() == '' else int(warmup)
 
     device_num = int(raw_input("enter the GPU device number \n"))
     assert -1 <= device_num <= 3, "GPU ID must be between -1 and 3"
