@@ -30,7 +30,10 @@ def attention(query, key, value, mask=None, dropout=None):
     d_k = query.size(-1)
     scores = torch.matmul(query, key.transpose(-2, -1)) \
              / math.sqrt(d_k)
+
+    batch_size, _, _, temp_dim = mask.size()
     if mask is not None:
+        scores = scores.view(batch_size, -1, 1, temp_dim)
         scores = scores.masked_fill(mask == 0, -1e9)
     p_attn = F.softmax(scores, dim=-1)
     if dropout is not None:
@@ -313,7 +316,7 @@ def make_model(src_vocab, config, label_size=42, N=6,
         Decoder(DecoderLayer(d_model, c(attn), c(attn),
                              c(ff), dropout), N),
         nn.Sequential(Embeddings(d_model, src_vocab, config), c(position)),
-        nn.Sequential(Embeddings(d_model, [0., 1.], config), c(position)),
+        nn.Sequential(Embeddings(d_model, [0.], config), c(position)),
         Generator(d_model, label_size))
 
     # This was important from their code.
