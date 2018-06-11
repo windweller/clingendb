@@ -275,7 +275,7 @@ def make_model(src_vocab, label_size, config, device, N=3,
         Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
         Decoder(DecoderLayer(d_model, c(attn), c(ff), dropout), N),
         nn.Sequential(Embeddings(d_model, src_vocab, config), c(position)),
-        nn.Sequential(Embeddings(d_model, [0.], config), c(position)),
+        nn.Sequential(Embeddings(d_model, [0., 1.], config), c(position)),
         Generator(d_model, label_size))
 
     # This was important from their code.
