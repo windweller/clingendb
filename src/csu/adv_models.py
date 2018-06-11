@@ -30,10 +30,7 @@ def attention(query, key, value, mask=None, dropout=None):
     d_k = query.size(-1)
     scores = torch.matmul(query, key.transpose(-2, -1)) \
              / math.sqrt(d_k)
-
-    batch_size, _, _, temp_dim = mask.size()
     if mask is not None:
-        scores = scores.view(batch_size, -1, 1, temp_dim)
         scores = scores.masked_fill(mask == 0, -1e9)
     p_attn = F.softmax(scores, dim=-1)
     if dropout is not None:
