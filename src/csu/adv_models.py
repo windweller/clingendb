@@ -465,7 +465,7 @@ class Trainer(object):
                 ys_mask = Variable(subsequent_mask(ys.size(1)).type_as(x)).cuda(self.device)
 
                 x_mask = (x != pad).unsqueeze(-2)
-                out = self.classifier(x, ys, x_mask, ys_mask)  # src, tgt, src_mask, tgt_mask
+                out = self.classifier(x, ys, x_mask, ys_mask).squeeze()  # src, tgt, src_mask, tgt_mask
                 loss = self.loss_compute(out, y)  # loss.backward() and opt.step() is called inside
                 # generator is also called inside
 
