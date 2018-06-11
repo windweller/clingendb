@@ -188,18 +188,59 @@ class Classifier(nn.Module):
     other models.
     """
 
-    def __init__(self, encoder, src_embed, generator):
+    def __init__(self, encoder, decoder, src_embed, generator):
         super(Classifier, self).__init__()
         self.encoder = encoder
         self.src_embed = src_embed
         self.generator = generator
+        self.decoder = decoder
 
     def forward(self, src, src_mask):
         "Take in and process masked src and target sequences."
-        return self.encode(src, src_mask)
+        return  self.decode(self.encode(src, src_mask), src_mask)
 
     def encode(self, src, src_mask):
         return self.encoder(self.src_embed(src), src_mask)
+
+    def decode(self, memory, src_mask):
+        return self.decoder(memory, src_mask)
+
+
+class DecoderLayer(nn.Module):
+    "Decoder is made of self-attn, src-attn, and feed forward (defined below)"
+
+    def __init__(self, size, src_attn, feed_forward, dropout):
+        super(DecoderLayer, self).__init__()
+        self.size = size
+        self.src_attn = src_attn
+        self.feed_forward = feed_forward
+        self.sublayer = clones(SublayerConnection(size, dropout), 2)
+
+    # x is just previous input now...
+    def forward(self, x, memory, src_mask):
+        # memory: encoder material
+        # x: input from target (which we don't need!)
+        "Follow Figure 1 (right) for connections."
+        m = memory
+        x = self.sublayer[0](x, lambda x: self.src_attn(x, m, m, src_mask))
+        return self.sublayer[1](x, self.feed_forward)
+
+
+# we basically simulate one-step "decoding"
+class Decoder(nn.Module):
+    "Generic N layer decoder with masking."
+
+    def __init__(self, layer, N):
+        super(Decoder, self).__init__()
+        self.layers = clones(layer, N)
+        self.norm = LayerNorm(layer.size)
+        self.dec_token = nn.Parameter(torch.randn(layer.size))  # will be learned
+
+    def forward(self, memory, src_mask):
+        x = self.dec_token
+        for layer in self.layers:
+            x = layer(x, memory, src_mask)
+        return self.norm(x)
 
 
 class Generator(nn.Module):
@@ -213,7 +254,7 @@ class Generator(nn.Module):
         return F.log_softmax(self.proj(x), dim=-1)
 
 
-def make_model(src_vocab, label_size, config, N=6,
+def make_model(src_vocab, label_size, config, N=3,
                d_model=512, d_ff=2048, h=8, dropout=0.1):
     "Helper: Construct a model from hyperparameters."
     # src_vocab: needs to be a PyTorch vocab object
@@ -223,6 +264,7 @@ def make_model(src_vocab, label_size, config, N=6,
     position = PositionalEncoding(d_model, dropout)
     model = Classifier(
         Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
+        Decoder(DecoderLayer(d_model, c(attn), c(ff), dropout), N),
         nn.Sequential(Embeddings(d_model, src_vocab, config), c(position)),
         Generator(d_model, label_size))
 
@@ -306,6 +348,7 @@ def run_epoch(data_iter, model, loss_compute):
             start = time.time()
     return total_loss / total_batches
 
+
 class Trainer(object):
     def __init__(self, classifier, dataset, config, save_path, device, load=False,
                  **kwargs):
@@ -331,7 +374,7 @@ class Trainer(object):
         bce_loss = nn.BCEWithLogitsLoss()
 
         self.model_opt = NoamOpt(self.classifier.src_embed[0].d_model, 1, 400,
-                            torch.optim.Adam(self.classifier.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
+                                 torch.optim.Adam(self.classifier.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
 
         self.loss_compute = SimpleLossCompute(self.classifier.generator, criterion=bce_loss, opt=self.model_opt)
 
@@ -385,7 +428,9 @@ class Trainer(object):
 
                 if iter % 100 == 0:
                     self.logger.info(
-                        "iter {} lr={} train_loss={} exp_cost={} \n".format(iter, self.model_opt.optimizer.param_groups[0]['lr'],
+                        "iter {} lr={} train_loss={} exp_cost={} \n".format(iter,
+                                                                            self.model_opt.optimizer.param_groups[0][
+                                                                                'lr'],
                                                                             loss.data[0], exp_cost))
             self.logger.info("enter validation...")
             valid_em, micro_tup, macro_tup = self.evaluate(is_test=False)
@@ -450,6 +495,7 @@ class Trainer(object):
                                          np.average(f1[f1.nonzero()])
 
         return em, (micro_p, micro_r, micro_f1), (macro_p, macro_r, macro_f1)
+
 
 if __name__ == '__main__':
     # if we just call this file, it will set up an interactive console
