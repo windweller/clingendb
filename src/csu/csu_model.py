@@ -168,10 +168,10 @@ class Dataset(object):
     def __init__(self, path='./data/csu/',
                  dataset_prefix='snomed_multi_label_no_des_',
                  test_data_name='adobe_abbr_matched_snomed_multi_label_no_des_test.tsv',
-                 label_size=42):
-        self.TEXT = ReversibleField(sequential=True, include_lengths=True, lower=False)
+                 label_size=42, fix_length=None):
+        self.TEXT = ReversibleField(sequential=True, include_lengths=True, lower=False, fix_length=fix_length)
         self.LABEL = MultiLabelField(sequential=True, use_vocab=False, label_size=label_size,
-                                     tensor_type=torch.FloatTensor)
+                                     tensor_type=torch.FloatTensor, fix_length=fix_length)
 
         # it's actually this step that will take 5 minutes
         self.train, self.val, self.test = data.TabularDataset.splits(
@@ -615,10 +615,6 @@ class Experiment(object):
         self.record_meta_result([csu_em, csu_micro_tup, csu_macro_tup,
                                  pp_em, pp_micro_tup, pp_macro_tup],
                                 append=append, config=trainer.config)
-
-    def compute_agg_avg(self, agg_stats):
-        avg_em = np.average([t[0] for t in agg_stats])
-
 
     def execute(self, config, device, append=True):
         # combined get_trainer() and execute_trainer()

@@ -590,7 +590,7 @@ if __name__ == '__main__':
     assert -1 <= device_num <= 3, "GPU ID must be between -1 and 3"
 
     print("loading in dataset...will take 3-4 minutes...")
-    dataset = Dataset()
+    dataset = Dataset(fix_length=700) # should be enough!!
     config = LSTMBaseConfig()
 
     dataset.build_vocab(config=config)
