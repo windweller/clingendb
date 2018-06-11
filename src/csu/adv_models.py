@@ -446,7 +446,7 @@ class Trainer(object):
 
         bce_loss = nn.BCEWithLogitsLoss()
 
-        self.model_opt = NoamOpt(self.classifier.src_embed[0].d_model, 1, 400,
+        self.model_opt = NoamOpt(self.classifier.src_embed[0].d_model, 1, warmup,
                                  torch.optim.Adam(self.classifier.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
 
         self.loss_compute = SimpleLossCompute(self.classifier.generator, criterion=bce_loss, opt=self.model_opt)
@@ -586,11 +586,14 @@ if __name__ == '__main__':
     # we get the original random state, and simply reset during each run
     orig_state = random.getstate()
 
+    warmup = raw_input("enter warmup steps (should be > 2500): \n")
+    warmup = 2500 if warmup.strip() == '' else int(warmup)
+
     device_num = int(raw_input("enter the GPU device number \n"))
     assert -1 <= device_num <= 3, "GPU ID must be between -1 and 3"
 
     print("loading in dataset...will take 3-4 minutes...")
-    dataset = Dataset(fix_length=700) # should be enough!!
+    dataset = Dataset(fix_length=800) # should be enough!!
     config = LSTMBaseConfig()
 
     dataset.build_vocab(config=config)
