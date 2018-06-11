@@ -188,22 +188,30 @@ class Classifier(nn.Module):
     other models.
     """
 
-    def __init__(self, encoder, decoder, src_embed, generator):
+    def __init__(self, device, encoder, decoder, src_embed, tgt_embed, generator):
         super(Classifier, self).__init__()
         self.encoder = encoder
         self.src_embed = src_embed
+        self.tgt_embed = tgt_embed
         self.generator = generator
         self.decoder = decoder
 
+        start_symbol = 1.
+        # start token for decoder
+        if device != -1:
+            self.ys = Variable(torch.ones(1, 1).fill_(start_symbol)).cuda(device)
+        else:
+            self.ys = Variable(torch.ones(1, 1).fill_(start_symbol))
+
     def forward(self, src, src_mask):
         "Take in and process masked src and target sequences."
-        return  self.decode(self.encode(src, src_mask), src_mask)
+        return  self.decode(self.encode(src, src_mask), src_mask, self.ys)
 
     def encode(self, src, src_mask):
         return self.encoder(self.src_embed(src), src_mask)
 
-    def decode(self, memory, src_mask):
-        return self.decoder(memory, src_mask)
+    def decode(self, memory, src_mask, tgt):
+        return self.decoder(self.tgt_embed(tgt), memory, src_mask)
 
 
 class DecoderLayer(nn.Module):
@@ -235,10 +243,9 @@ class Decoder(nn.Module):
         self.layers = clones(layer, N)
         self.norm = LayerNorm(layer.size)
         # simulate (batch_size, time_dim, hidden_size)...not sure if it will work
-        self.dec_token = nn.Parameter(torch.randn(1, 1, layer.size))  # will be learned
+        # self.dec_token = nn.Parameter(torch.randn(1, 1, layer.size))  # will be learned
 
-    def forward(self, memory, src_mask):
-        x = self.dec_token
+    def forward(self, x, memory, src_mask):
         for layer in self.layers:
             x = layer(x, memory, src_mask)
         return self.norm(x)
@@ -255,7 +262,7 @@ class Generator(nn.Module):
         return F.log_softmax(self.proj(x), dim=-1)
 
 
-def make_model(src_vocab, label_size, config, N=3,
+def make_model(src_vocab, label_size, config, device, N=3,
                d_model=512, d_ff=2048, h=8, dropout=0.1):
     "Helper: Construct a model from hyperparameters."
     # src_vocab: needs to be a PyTorch vocab object
@@ -264,9 +271,11 @@ def make_model(src_vocab, label_size, config, N=3,
     ff = PositionwiseFeedForward(d_model, d_ff, dropout)
     position = PositionalEncoding(d_model, dropout)
     model = Classifier(
+        device,
         Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
         Decoder(DecoderLayer(d_model, c(attn), c(ff), dropout), N),
         nn.Sequential(Embeddings(d_model, src_vocab, config), c(position)),
+        nn.Sequential(Embeddings(d_model, [0.], config), c(position)),
         Generator(d_model, label_size))
 
     # This was important from their code.
