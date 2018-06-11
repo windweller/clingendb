@@ -448,6 +448,8 @@ class Trainer(object):
 
     def train(self, epochs=5, no_print=True):
         pad = 1.
+        start_symbol = 0.
+        ys = torch.ones(32, 1).fill_(start_symbol)
 
         # train loop
         exp_cost = None
@@ -457,16 +459,15 @@ class Trainer(object):
                 self.classifier.zero_grad()
                 # (x, x_lengths), y = data.Text, data.Description
 
-                # output_vec = self.classifier.get_vectors(x, x_lengths)  # this is just logit (before calling sigmoid)
-                # final_rep = torch.max(output_vec, 0)[0].squeeze(0)
-                # logits = self.classifier.get_logits(output_vec)
-
                 (x, x_lengths), y = data.Text, data.Description
                 x = x.transpose(0, 1)  # batch-first (rebatch)
+                ys = Variable(ys.type_as(x)).cuda(self.device)
+                ys_mask = Variable(subsequent_mask(ys.size(1)).type_as(x)).cuda(self.device)
 
                 x_mask = (x != pad).unsqueeze(-2)
-                out = self.classifier.forward(x, x_mask)
+                out = self.classifier(x, ys, x_mask, ys_mask)  # src, tgt, src_mask, tgt_mask
                 loss = self.loss_compute(out, y)  # loss.backward() and opt.step() is called inside
+                # generator is also called inside
 
                 # batch_size = x.size(0)
 
@@ -508,14 +509,19 @@ class Trainer(object):
 
         all_preds, all_y_labels = [], []
         pad = 1.
+        start_symbol = 0.
+        ys = torch.ones(32, 1).fill_(start_symbol)
 
         for iter, data in enumerate(data_iter):
             (x, x_lengths), y = data.Text, data.Description
 
             x = x.transpose(0, 1)  # batch-first (rebatch)
             x_mask = (x != pad).unsqueeze(-2)
+            ys = Variable(ys.type_as(x)).cuda(self.device)
+            ys_mask = Variable(subsequent_mask(ys.size(1)).type_as(x)).cuda(self.device)
 
-            logits = self.classifier.generator(self.classifier(x, x_mask))
+            out = self.classifier(x, ys, x_mask, ys_mask)
+            logits = self.classifier.generator(out[:, -1])
 
             preds = (torch.sigmoid(logits) > 0.5).data.cpu().numpy().astype(float)
             all_preds.append(preds)
@@ -565,7 +571,7 @@ if __name__ == '__main__':
 
     dataset.build_vocab(config=config)
 
-    model = make_model(dataset.vocab, device=-1, label_size=42, d_model=150, h=10, config=config, N=4)
+    model = make_model(dataset.vocab, label_size=42, d_model=150, h=10, config=config, N=4)
     print model
 
     trainer = Trainer(model, dataset, config, './csu_attn_try', device=3)
