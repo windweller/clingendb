@@ -198,7 +198,8 @@ class EncoderDecoder(nn.Module):
 
     def forward(self, src, tgt, src_mask, tgt_mask):
         "Take in and process masked src and target sequences."
-        return self.decode(self.encode(src, src_mask), src_mask,
+        memory = self.encode(src, src_mask)
+        return self.decode(memory, src_mask,
                            tgt, tgt_mask)
 
     def encode(self, src, src_mask):
@@ -207,6 +208,30 @@ class EncoderDecoder(nn.Module):
     def decode(self, memory, src_mask, tgt, tgt_mask):
         return self.decoder(self.tgt_embed(tgt), memory, src_mask, tgt_mask)
 
+class Classifier(nn.Module):
+    def __init__(self, encoder, decoder, src_embed, tgt_embed, generator):
+        super(Classifier, self).__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+        self.src_embed = src_embed
+        self.tgt_embed = tgt_embed
+        self.generator = generator
+
+        # instead of using tgt_emb or decoder...we simply...
+
+    def forward(self, src, tgt, src_mask, tgt_mask):
+        "Take in and process masked src and target sequences."
+        memory = self.encode(src, src_mask).squeeze()
+        output = torch.max(memory, 1)[0].squeeze(0)  # temp dimension is 1
+        return output
+        # return self.decode(memory, src_mask,
+        #                    tgt, tgt_mask)
+
+    def encode(self, src, src_mask):
+        return self.encoder(self.src_embed(src), src_mask)
+
+    def decode(self, memory, src_mask, tgt, tgt_mask):
+        return self.decoder(self.tgt_embed(tgt), memory, src_mask, tgt_mask)
 
 class Generator(nn.Module):
     "Define standard linear + softmax generation step."
@@ -308,7 +333,8 @@ def make_model(src_vocab, config, label_size=42, N=6,
     attn = MultiHeadedAttention(h, d_model)
     ff = PositionwiseFeedForward(d_model, d_ff, dropout)
     position = PositionalEncoding(d_model, dropout)
-    model = EncoderDecoder(
+    # EncoderDecoder
+    model = Classifier(
         Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
         Decoder(DecoderLayer(d_model, c(attn), c(attn),
                              c(ff), dropout), N),
@@ -574,7 +600,7 @@ if __name__ == '__main__':
 
     dataset.build_vocab(config=config)
 
-    model = make_model(dataset.vocab, label_size=42, d_model=100, d_ff=200, h=4, config=config, N=2)
+    model = make_model(dataset.vocab, label_size=42, d_model=100, d_ff=150, h=4, config=config, N=3)
     print model
 
     trainer = Trainer(model, dataset, config, './csu_attn_try', device=device_num)
