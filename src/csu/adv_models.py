@@ -199,9 +199,9 @@ class Classifier(nn.Module):
         start_symbol = 1.
         # start token for decoder
         if device != -1:
-            self.ys = Variable(torch.ones(1, 1).fill_(start_symbol)).cuda(device)
+            self.ys = Variable(torch.ones(1, 1).fill_(start_symbol)).type(torch.LongTensor).cuda(device)
         else:
-            self.ys = Variable(torch.ones(1, 1).fill_(start_symbol))
+            self.ys = Variable(torch.ones(1, 1).fill_(start_symbol)).type(torch.LongTensor)
 
     def forward(self, src, src_mask):
         "Take in and process masked src and target sequences."
@@ -523,7 +523,7 @@ if __name__ == '__main__':
 
     dataset.build_vocab(config=config)
 
-    model = make_model(dataset.vocab, label_size=42, d_model=150, h=10, config=config, N=4)
+    model = make_model(dataset.vocab, device=-1, label_size=42, d_model=150, h=10, config=config, N=4)
     print model
 
     trainer = Trainer(model, dataset, config, './csu_attn_try', device=3)
