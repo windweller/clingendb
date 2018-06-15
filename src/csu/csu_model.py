@@ -345,13 +345,13 @@ class MetaLoss(nn.Module):
 # Experiment class will create a central folder, and it will have sub-folder for each trainer
 # central folder will have an overall summary...(Experiment will also have ways to do 5 random seed exp)
 class Trainer(object):
-    def __init__(self, classifier, dataset, config, save_path, device, load=False,
+    def __init__(self, classifier, dataset, config, save_path, device, load=False, run_order=0,
                  **kwargs):
         # save_path: where to save log and model
         if load:
             # or we can add a new keyword...
-            if os.path.exists(pjoin(save_path, 'model-0.pickle')):
-                self.classifier = torch.load(pjoin(save_path, 'model-0.pickle')).cuda(device)
+            if os.path.exists(pjoin(save_path, 'model-{}.pickle'.format(run_order))):
+                self.classifier = torch.load(pjoin(save_path, 'model-{}.pickle'.format(run_order))).cuda(device)
             else:
                 self.classifier = torch.load(pjoin(save_path, 'model.pickle')).cuda(device)
         else:
@@ -503,7 +503,7 @@ class Trainer(object):
         return error_dict
 
 
-    def evaluate(self, run_order=0, is_test=False, is_external=False, silent=False, return_by_label_stats=False,
+    def evaluate(self, is_test=False, is_external=False, silent=False, return_by_label_stats=False,
                  return_instances=False):
         self.classifier.eval()
         data_iter = self.test_iter if is_test else self.val_iter  # evaluate on CSU
@@ -527,10 +527,11 @@ class Trainer(object):
 
         # this is actually the accurate exact match
         em = metrics.accuracy_score(ys, preds)
+        accu = [metrics.accuracy_score(ys[i], preds[i]) for i in range(self.config.label_size)]
         p, r, f1, s = metrics.precision_recall_fscore_support(ys, preds, average=None)
 
         if return_by_label_stats:
-            return p, r, f1, s
+            return p, r, f1, s, accu
         elif return_instances:
             return ys, preds
 
@@ -587,7 +588,7 @@ class Experiment(object):
                                      'PP EM', 'PP micro-P', 'PP micro-R', 'PP micro-F1',
                                      'PP macro-P', 'PP macro-R', 'PP macro-F1'])
 
-    def get_trainer(self, config, device, build_vocab=False, load=False, silent=True, **kwargs):
+    def get_trainer(self, config, device, run_order=0, build_vocab=False, load=False, silent=True, **kwargs):
         # build each trainer and classifier by config; or reload classifier
         # **kwargs: additional commands for the two losses
 
@@ -600,7 +601,7 @@ class Experiment(object):
         trainer_folder = config.run_name if config.run_name != 'default' else self.config_to_string(config)
         trainer = Trainer(classifier, self.dataset, config,
                           save_path=pjoin(self.exp_save_path, trainer_folder),
-                          device=device, load=load, **kwargs)
+                          device=device, load=load, run_order=run_order, **kwargs)
 
         return trainer
 
@@ -733,18 +734,30 @@ class Experiment(object):
         del trainer.classifier
         del trainer
 
-    # def evaluate(self, ):
-    #     # Similr to trainer.evaluate() signature
-    #     # but allows to handle multi-run averaging!
-    #
-    #     csu_em, csu_micro_tup, csu_macro_tup = trainer.test(silent=True)
-    #     trainer.logger.info("===== Evaluating on PP data =====")
-    #     pp_em, pp_micro_tup, pp_macro_tup = trainer.evaluate(is_external=True, silent=True)
-    #     if write_to_meta:
-    #         self.record_meta_result([csu_em, csu_micro_tup, csu_macro_tup,
-    #                                  pp_em, pp_micro_tup, pp_macro_tup],
-    #                                 append=True, config=trainer.config)
+    def evaluate(self, config, device, is_external=False):
+        # Similr to trainer.evaluate() signature
+        # but allows to handle multi-run averaging!
+        # we also always return by_label_stats
+        # return: p,r,f1,s,accu
 
+        self.dataset.build_vocab(config, True)
+        agg_p, agg_r, agg_f1, agg_accu = 0., 0., 0., 0.
+
+        for run_order in range(config.avg_run_times):
+            trainer = self.get_trainer(config, device, run_order, build_vocab=False, load=True)
+            p, r, f1, s, accu = trainer.evaluate(is_external=is_external, return_by_label_stats=True)
+            agg_p += p; agg_r += r; agg_f1 += f1; agg_accu += accu
+
+        agg_p, agg_r, agg_f1, agg_accu = agg_p / float(config.avg_run_times), agg_r/ float(config.avg_run_times), \
+                                         agg_f1/ float(config.avg_run_times), agg_accu / float(config.avg_run_times)
+
+        return agg_p, agg_r, agg_f1, agg_accu
+
+    # TODO: under construction... (not most urgent)
+    def get_performance(self, config):
+        # actually looks into trainer's actual file
+        # returns:
+        trainer_folder = config.run_name if config.run_name != 'default' else self.config_to_string(config)
 
 # Important! Each time you use "get_iterators", must restore previous random state
 # otherwise the sampling procedure will be different
