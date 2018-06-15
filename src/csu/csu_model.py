@@ -733,16 +733,17 @@ class Experiment(object):
         del trainer.classifier
         del trainer
 
-    # TODO: rewrite this function to evaluate multi-run model
-    def re_execute(self, trainer, write_to_meta=False):
-        # load in previous model in get_trainer(), and just get results, no recording
-        csu_em, csu_micro_tup, csu_macro_tup = trainer.test(silent=True)
-        trainer.logger.info("===== Evaluating on PP data =====")
-        pp_em, pp_micro_tup, pp_macro_tup = trainer.evaluate(is_external=True, silent=True)
-        if write_to_meta:
-            self.record_meta_result([csu_em, csu_micro_tup, csu_macro_tup,
-                                     pp_em, pp_micro_tup, pp_macro_tup],
-                                    append=True, config=trainer.config)
+    # def evaluate(self, ):
+    #     # Similr to trainer.evaluate() signature
+    #     # but allows to handle multi-run averaging!
+    #
+    #     csu_em, csu_micro_tup, csu_macro_tup = trainer.test(silent=True)
+    #     trainer.logger.info("===== Evaluating on PP data =====")
+    #     pp_em, pp_micro_tup, pp_macro_tup = trainer.evaluate(is_external=True, silent=True)
+    #     if write_to_meta:
+    #         self.record_meta_result([csu_em, csu_micro_tup, csu_macro_tup,
+    #                                  pp_em, pp_micro_tup, pp_macro_tup],
+    #                                 append=True, config=trainer.config)
 
 
 # Important! Each time you use "get_iterators", must restore previous random state
@@ -821,17 +822,17 @@ if __name__ == '__main__':
         # run_m_penalty(device_num, beta=1e-3)
         # run_m_penalty(device_num, beta=1e-4)
 
-        run_baseline(device_num)
-        run_bidir_baseline(device_num)
-
-        # baseline LSTM + M + bidir
-        run_m_penalty(device_num, beta=1e-4, bidir=True)
-        run_m_penalty(device_num, beta=1e-3, bidir=True)
-
-        run_c_penalty(device_num, sigma_M=1e-5, sigma_B=1e-4, sigma_W=1e-4, bidir=True)
-        run_c_penalty(device_num, sigma_M=1e-4, sigma_B=1e-3, sigma_W=1e-3, bidir=True)
-
-        run_m_penalty(device_num, beta=1e-4)
+        # run_baseline(device_num)
+        # run_bidir_baseline(device_num)
+        #
+        # # baseline LSTM + M + bidir
+        # run_m_penalty(device_num, beta=1e-4, bidir=True)
+        # run_m_penalty(device_num, beta=1e-3, bidir=True)
+        #
+        # run_c_penalty(device_num, sigma_M=1e-5, sigma_B=1e-4, sigma_W=1e-4, bidir=True)
+        # run_c_penalty(device_num, sigma_M=1e-4, sigma_B=1e-3, sigma_W=1e-3, bidir=True)
+        #
+        # run_m_penalty(device_num, beta=1e-4)
         run_m_penalty(device_num, beta=1e-3)
 
         run_c_penalty(device_num, sigma_M=1e-5, sigma_B=1e-4, sigma_W=1e-4)
