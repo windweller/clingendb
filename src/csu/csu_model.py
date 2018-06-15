@@ -486,7 +486,7 @@ class Trainer(object):
             if (preds[ith] == ys[ith]).sum() == self.config.label_size:
                 continue  # perfectly matched
 
-            for jth in range(len(self.config.label_size)):
+            for jth in range(self.config.label_size):
                 if preds[ith][jth] != ys[ith][jth]:
                     error_dict[jth].append((all_x[ith], ys[ith].nonzero()[0].tolist()))
                     # jth disease, append text, will result in duplication
