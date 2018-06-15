@@ -9,6 +9,7 @@ import logging
 import random
 import ftfy
 from sklearn import metrics
+from scipy import stats
 from os.path import join as pjoin
 
 from collections import defaultdict
@@ -21,6 +22,16 @@ from torch.nn.utils.rnn import pad_packed_sequence as unpack
 from torchtext import data
 from util import MultiLabelField, ReversibleField, BCEWithLogitsLoss, MultiMarginHierarchyLoss
 
+def get_ci(vals, return_range=False):
+    if len(set(vals)) == 1:
+        return (vals[0], vals[0])
+    loc = np.mean(vals)
+    scale = np.std(vals) / np.sqrt(len(vals))
+    range_0, range_1 = stats.t.interval(0.95, len(vals)-1, loc=loc, scale=scale)
+    if return_range:
+        return range_0, range_1
+    else:
+        return range_1 - loc
 
 class Config(dict):
     def __init__(self, **kwargs):
@@ -757,11 +768,30 @@ class Experiment(object):
 
         return agg_p, agg_r, agg_f1, agg_accu
 
-    # TODO: under construction... (not most urgent)
     def get_performance(self, config):
         # actually looks into trainer's actual file
-        # returns:
+        # returns: [(avg, std, CI), ...]
         trainer_folder = config.run_name if config.run_name != 'default' else self.config_to_string(config)
+
+        stat_array = defaultdict(list)
+        cat_size = 0.
+
+        with open(pjoin(self.exp_save_path, trainer_folder, 'avg_run_stats.csv'), 'r') as f:
+            csv_reader = csv.reader(f)
+            for i, line in enumerate(csv_reader):
+                if i == 0:
+                    continue
+                cat_size = len(line[1:])
+                for j, stat in enumerate(line[1:]):
+                    stat_array[j].append(stat)
+
+        stats_res = [0.] * cat_size
+
+        for j in range(cat_size):
+            stats_res[j] = (np.mean(stat_array[j]), np.std(stat_array[j]), get_ci(stat_array[j]))
+
+        return stats_res
+
 
 # Important! Each time you use "get_iterators", must restore previous random state
 # otherwise the sampling procedure will be different
