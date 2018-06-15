@@ -746,12 +746,12 @@ class Experiment(object):
         del trainer
 
     def compute_label_metrics_ci(self, config, list_metric_matrix):
-        label_list_metric = []
+        label_list_metric = [[] for _ in range(config.label_size)]
         mean, ubs, lbs = [], [], []
 
         for j in range(config.label_size):
             for mm in list_metric_matrix:
-                label_list_metric.append(mm[j])
+                label_list_metric[j].append(mm[j])
 
         for j in range(config.label_size):
             mean.append(np.mean(label_list_metric[j]))
