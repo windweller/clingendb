@@ -745,15 +745,15 @@ class Experiment(object):
         del trainer.classifier
         del trainer
 
-    def compute_label_metrics_ci(self, list_metric_matrix):
+    def compute_label_metrics_ci(self, config, list_metric_matrix):
         label_list_metric = []
         mean, ubs, lbs = [], [], []
 
-        for j in range(len(self.config.label_size)):
+        for j in range(len(config.label_size)):
             for mm in list_metric_matrix:
                 label_list_metric.append(mm[j])
 
-        for j in range(len(self.config.label_size)):
+        for j in range(len(config.label_size)):
             mean.append(np.mean(label_list_metric[j]))
             lb, ub = get_ci(label_list_metric[j], return_range=True)
             ubs.append(ub); lbs.append(lb)
@@ -782,7 +782,7 @@ class Experiment(object):
             agg_f1_list.append(f1)
 
         if return_f1_ci:
-            return self.compute_label_metrics_ci(agg_f1_list)
+            return self.compute_label_metrics_ci(config, agg_f1_list)
 
         agg_p, agg_r, agg_f1, agg_accu = agg_p / float(config.avg_run_times), agg_r/ float(config.avg_run_times), \
                                          agg_f1/ float(config.avg_run_times), agg_accu / float(config.avg_run_times)
