@@ -452,6 +452,9 @@ class Trainer(object):
     def save_error_examples(self, error_dict, label_names, save_address):
         # error_dict: {label: []}
         # creates 42 files in the given directory
+        if not os.path.exists(pjoin(self.save_path, save_address)):
+            os.makedirs(pjoin(self.save_path, save_address))
+            
         for label_i, error_examples in error_dict.iteritems():
             file_name = label_names[label_i].replace('AND/OR', '').replace('and/or', '').replace('/', '')
             with open(pjoin(self.save_path, save_address, file_name + '.txt'), 'w') as f:
