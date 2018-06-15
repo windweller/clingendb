@@ -527,7 +527,7 @@ class Trainer(object):
 
         # this is actually the accurate exact match
         em = metrics.accuracy_score(ys, preds)
-        accu = [metrics.accuracy_score(ys[i], preds[i]) for i in range(self.config.label_size)]
+        accu = np.array([metrics.accuracy_score(ys[i], preds[i]) for i in range(self.config.label_size)], dtype='float32')
         p, r, f1, s = metrics.precision_recall_fscore_support(ys, preds, average=None)
 
         if return_by_label_stats:
@@ -734,18 +734,20 @@ class Experiment(object):
         del trainer.classifier
         del trainer
 
-    def evaluate(self, config, device, is_external=False):
+    def evaluate(self, config, device, is_external=False, rebuild_vocab=False):
         # Similr to trainer.evaluate() signature
         # but allows to handle multi-run averaging!
         # we also always return by_label_stats
         # return: p,r,f1,s,accu
 
-        self.dataset.build_vocab(config, True)
+        if rebuild_vocab:
+            self.dataset.build_vocab(config, True)
+
         agg_p, agg_r, agg_f1, agg_accu = 0., 0., 0., 0.
 
         for run_order in range(config.avg_run_times):
             trainer = self.get_trainer(config, device, run_order, build_vocab=False, load=True)
-            p, r, f1, s, accu = trainer.evaluate(is_external=is_external, return_by_label_stats=True)
+            p, r, f1, s, accu = trainer.evaluate(is_external=is_external, return_by_label_stats=True, silent=True)
             agg_p += p; agg_r += r; agg_f1 += f1; agg_accu += accu
 
         agg_p, agg_r, agg_f1, agg_accu = agg_p / float(config.avg_run_times), agg_r/ float(config.avg_run_times), \
