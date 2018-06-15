@@ -749,11 +749,11 @@ class Experiment(object):
         label_list_metric = []
         mean, ubs, lbs = [], [], []
 
-        for j in range(len(config.label_size)):
+        for j in range(config.label_size):
             for mm in list_metric_matrix:
                 label_list_metric.append(mm[j])
 
-        for j in range(len(config.label_size)):
+        for j in range(config.label_size):
             mean.append(np.mean(label_list_metric[j]))
             lb, ub = get_ci(label_list_metric[j], return_range=True)
             ubs.append(ub); lbs.append(lb)
