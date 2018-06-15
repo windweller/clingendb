@@ -783,7 +783,7 @@ class Experiment(object):
                     continue
                 cat_size = len(line[1:])
                 for j, stat in enumerate(line[1:]):
-                    stat_array[j].append(stat)
+                    stat_array[j].append(float(stat))
 
         stats_res = [0.] * cat_size
 
