@@ -745,7 +745,23 @@ class Experiment(object):
         del trainer.classifier
         del trainer
 
-    def evaluate(self, config, device, is_external=False, rebuild_vocab=False, silent=False):
+    def compute_label_metrics_ci(self, list_metric_matrix):
+        label_list_metric = []
+        mean, ubs, lbs = [], [], []
+
+        for j in range(len(self.config.label_size)):
+            for mm in list_metric_matrix:
+                label_list_metric.append(mm[j])
+
+        for j in range(len(self.config.label_size)):
+            mean.append(np.mean(label_list_metric[j]))
+            lb, ub = get_ci(label_list_metric[j], return_range=True)
+            ubs.append(ub); lbs.append(lb)
+
+        return mean, ubs, lbs
+
+    def evaluate(self, config, device, is_external=False, rebuild_vocab=False, silent=False,
+                 return_f1_ci=False):
         # Similr to trainer.evaluate() signature
         # but allows to handle multi-run averaging!
         # we also always return by_label_stats
@@ -755,6 +771,7 @@ class Experiment(object):
             self.dataset.build_vocab(config, True)
 
         agg_p, agg_r, agg_f1, agg_accu = 0., 0., 0., 0.
+        agg_f1_list = []
 
         for run_order in range(config.avg_run_times):
             if not silent:
@@ -762,6 +779,10 @@ class Experiment(object):
             trainer = self.get_trainer(config, device, run_order, build_vocab=False, load=True)
             p, r, f1, s, accu = trainer.evaluate(is_external=is_external, return_by_label_stats=True, silent=True)
             agg_p += p; agg_r += r; agg_f1 += f1; agg_accu += accu
+            agg_f1.append(f1)
+
+        if return_f1_ci:
+            return self.compute_label_metrics_ci(agg_f1_list)
 
         agg_p, agg_r, agg_f1, agg_accu = agg_p / float(config.avg_run_times), agg_r/ float(config.avg_run_times), \
                                          agg_f1/ float(config.avg_run_times), agg_accu / float(config.avg_run_times)
