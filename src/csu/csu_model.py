@@ -777,7 +777,7 @@ class Experiment(object):
             if not silent:
                 print("Executing order {}".format(run_order))
             trainer = self.get_trainer(config, device, run_order, build_vocab=False, load=True)
-            p, r, f1, s, accu = trainer.evaluate(is_external=is_external, return_by_label_stats=True, silent=True)
+            p, r, f1, s, accu = trainer.evaluate(is_test=True, is_external=is_external, return_by_label_stats=True, silent=True)
             agg_p += p; agg_r += r; agg_f1 += f1; agg_accu += accu
             agg_f1_list.append(f1)
 
