@@ -7,6 +7,7 @@ import os
 import csv
 import logging
 import random
+import ftfy
 from sklearn import metrics
 from os.path import join as pjoin
 
@@ -450,6 +451,7 @@ class Trainer(object):
                              return_instances=return_instances)
 
     def save_error_examples(self, error_dict, label_names, save_address):
+        import codecs
         # error_dict: {label: []}
         # creates 42 files in the given directory
         if not os.path.exists(pjoin(self.save_path, save_address)):
@@ -457,9 +459,9 @@ class Trainer(object):
 
         for label_i, error_examples in error_dict.iteritems():
             file_name = label_names[label_i].replace('AND/OR', '').replace('and/or', '').replace('/', '')
-            with open(pjoin(self.save_path, save_address, file_name + '.txt'), 'w') as f:
+            with codecs.open(pjoin(self.save_path, save_address, file_name + '.txt'), 'w', encoding='utf-8') as f:
                 for e_tup in error_examples:
-                    f.write(e_tup[0] + '\t' + '-'.join([str(x) for x in e_tup[1]]) + '\n')  # x tab y
+                    f.write(e_tup[0].decode('utf-8').encode('ascii') + '\t' + '-'.join([str(x) for x in e_tup[1]]) + '\n')  # x tab y
 
     def get_error_examples(self, is_external=False, save_address=None, label_names=None):
         # this function is slower to run than evaluate()
