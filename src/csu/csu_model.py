@@ -527,7 +527,7 @@ class Trainer(object):
 
         # this is actually the accurate exact match
         em = metrics.accuracy_score(ys, preds)
-        accu = np.array([metrics.accuracy_score(ys[i], preds[i]) for i in range(self.config.label_size)], dtype='float32')
+        accu = np.array([metrics.accuracy_score(ys[:, i], preds[:, i]) for i in range(self.config.label_size)], dtype='float32')
         p, r, f1, s = metrics.precision_recall_fscore_support(ys, preds, average=None)
 
         if return_by_label_stats:
