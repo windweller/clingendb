@@ -248,6 +248,10 @@ class Dataset(object):
                                            device=device, train=False, repeat=False, sort_within_batch=True)
         return external_test_iter
 
+    def get_lm_iterator(self, device):
+        # get language modeling data iterators
+        pass
+
 
 # compute loss
 class ClusterLoss(nn.Module):
@@ -339,7 +343,6 @@ class MetaLoss(nn.Module):
 # Each trainer is associated with a config and classifier actually...so should be associated with a log
 # Experiment class will create a central folder, and it will have sub-folder for each trainer
 # central folder will have an overall summary...(Experiment will also have ways to do 5 random seed exp)
-# TODO: if we run 5 times...the classifier can't be like this...
 class Trainer(object):
     def __init__(self, classifier, dataset, config, save_path, device, load=False,
                  **kwargs):
@@ -386,6 +389,11 @@ class Trainer(object):
 
     def load(self, run_order):
         self.classifier = torch.load(pjoin(self.save_path, 'model-{}.pickle').format(run_order)).cuda(self.device)
+
+    def pretrain(self, epochs=15):
+        # train loop
+        # even though without attention...LM can still play a role here to learn word embeddings
+        pass
 
     def train(self, run_order=0, epochs=5, no_print=True):
         # train loop
@@ -440,6 +448,55 @@ class Trainer(object):
         self.logger.info("compute test set performance...")
         return self.evaluate(is_test=True, silent=silent, return_by_label_stats=return_by_label_stats,
                              return_instances=return_instances)
+
+    def save_error_examples(self, error_dict, label_names, save_address):
+        # error_dict: {label: []}
+        # creates 42 files in the given directory
+        for label_i, error_examples in error_dict.iteritems():
+            file_name = label_names[label_i].replace('AND/OR', '').replace('and/or', '').replace('/', '')
+            with open(pjoin(self.save_path, save_address, file_name + '.txt')) as f:
+                for e_tup in error_examples:
+                    f.write(e_tup[0] + '\t' + '-'.join(e_tup[1]) + '\n')  # x tab y
+
+    def get_error_examples(self, is_external=False, save_address=None, label_names=None):
+        # this function is slower to run than evaluate()
+        # save_address needs to point to a folder, not a file
+
+        self.classifier.eval()
+        data_iter = self.test_iter if not is_external else self.external_test_iter
+
+        all_x, error_dict = [], defaultdict(list)
+        all_preds, all_y_labels = [], []  # we traverse these two numpy array, then pick out things
+
+        for iter, data in enumerate(data_iter):
+            (x, x_lengths), y = data.Text, data.Description
+            logits = self.classifier(x, x_lengths)
+            preds = (torch.sigmoid(logits) > 0.5).data.cpu().numpy().astype(float)
+            all_preds.append(preds)
+            all_y_labels.append(y.data.cpu().numpy())
+
+            orig_text = self.dataset.TEXT.reverse(x.data)
+            all_x.extend(orig_text)
+
+        preds = np.vstack(all_preds)
+        ys = np.vstack(all_y_labels)
+
+        for ith in range(len(all_x)):
+            # traverse one by one to find ill match
+            if (preds[ith] == ys[ith]).sum() == self.config.label_size:
+                continue  # perfectly matched
+
+            for jth in range(len(self.config.label_size)):
+                if preds[ith][jth] != ys[ith][jth]:
+                    error_dict[jth].append((all_x[ith], ys[ith].nonzero()[0].tolist()))
+                    # jth disease, append text, will result in duplication
+
+        if save_address is not None:
+            assert label_names is not None
+            self.save_error_examples(error_dict, label_names, save_address)
+
+        return error_dict
+
 
     def evaluate(self, run_order=0, is_test=False, is_external=False, silent=False, return_by_label_stats=False,
                  return_instances=False):
