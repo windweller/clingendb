@@ -734,7 +734,7 @@ class Experiment(object):
         del trainer.classifier
         del trainer
 
-    def evaluate(self, config, device, is_external=False, rebuild_vocab=False):
+    def evaluate(self, config, device, is_external=False, rebuild_vocab=False, silent=False):
         # Similr to trainer.evaluate() signature
         # but allows to handle multi-run averaging!
         # we also always return by_label_stats
@@ -746,6 +746,8 @@ class Experiment(object):
         agg_p, agg_r, agg_f1, agg_accu = 0., 0., 0., 0.
 
         for run_order in range(config.avg_run_times):
+            if not silent:
+                print("Executing order {}".format(run_order))
             trainer = self.get_trainer(config, device, run_order, build_vocab=False, load=True)
             p, r, f1, s, accu = trainer.evaluate(is_external=is_external, return_by_label_stats=True, silent=True)
             agg_p += p; agg_r += r; agg_f1 += f1; agg_accu += accu
