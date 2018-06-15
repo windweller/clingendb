@@ -779,7 +779,7 @@ class Experiment(object):
             trainer = self.get_trainer(config, device, run_order, build_vocab=False, load=True)
             p, r, f1, s, accu = trainer.evaluate(is_external=is_external, return_by_label_stats=True, silent=True)
             agg_p += p; agg_r += r; agg_f1 += f1; agg_accu += accu
-            agg_f1.append(f1)
+            agg_f1_list.append(f1)
 
         if return_f1_ci:
             return self.compute_label_metrics_ci(agg_f1_list)
