@@ -454,7 +454,7 @@ class Trainer(object):
         # creates 42 files in the given directory
         for label_i, error_examples in error_dict.iteritems():
             file_name = label_names[label_i].replace('AND/OR', '').replace('and/or', '').replace('/', '')
-            with open(pjoin(self.save_path, save_address, file_name + '.txt')) as f:
+            with open(pjoin(self.save_path, save_address, file_name + '.txt'), 'w') as f:
                 for e_tup in error_examples:
                     f.write(e_tup[0] + '\t' + '-'.join(e_tup[1]) + '\n')  # x tab y
 
