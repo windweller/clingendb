@@ -646,7 +646,7 @@ class Experiment(object):
 
         return model_name.replace('.', '').replace('-', '_')  # for 1e-3 to 1e_3
 
-    def record_meta_result(self, meta_results, append, config):
+    def record_meta_result(self, meta_results, append, config, file_name='all_runs_stats.csv'):
         # this records result one line at a time!
         mode = 'a' if append else 'w'
         model_str = self.config_to_string(config)
@@ -654,7 +654,7 @@ class Experiment(object):
         csu_em, csu_micro_tup, csu_macro_tup, \
         pp_em, pp_micro_tup, pp_macro_tup = meta_results
 
-        with open(pjoin(self.exp_save_path, "all_runs_stats.csv"), mode=mode) as f:
+        with open(pjoin(self.exp_save_path, file_name), mode=mode) as f:
             csv_writer = csv.writer(f)
             csv_writer.writerow([model_str, csu_em, csu_micro_tup[0],
                                  csu_micro_tup[1], csu_micro_tup[2],
@@ -761,7 +761,8 @@ class Experiment(object):
 
         return mean, ubs, lbs
 
-    def get_meta_result(self, config, device, rebuild_vocab=False, silent=False, return_avg=True):
+    def get_meta_result(self, config, device, rebuild_vocab=False, silent=False, return_avg=True,
+                        print_to_file=False, file_name='', append=True):
         # returns: csu_avg_em, csu_avg_micro, csu_avg_macro, pp_avg_em, pp_avg_micro, pp_avg_macro
         # basically ONE row in the results table.
         # return_avg: return 5 runs individually (for std, ci calculation), or return average only
@@ -790,7 +791,12 @@ class Experiment(object):
         pp_avg_micro, pp_avg_macro = np.average(agg_pp_micro_tup, axis=0).tolist(), np.average(agg_pp_macro_tup,
                                                                                                axis=0).tolist()
 
-        if return_avg:
+        if print_to_file:
+            assert file_name != ''
+            self.record_meta_result([csu_avg_em, csu_avg_micro, csu_avg_macro,
+                                     pp_avg_em, pp_avg_micro, pp_avg_macro],
+                                    append=append, config=config)
+        elif return_avg:
             return [csu_avg_em, csu_avg_micro[0],
                     csu_avg_micro[1], csu_avg_micro[2],
                     csu_avg_macro[0], csu_avg_macro[1], csu_avg_macro[2],
