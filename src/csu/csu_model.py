@@ -777,7 +777,7 @@ class Experiment(object):
             if not silent:
                 print("Executing order {}".format(run_order))
             trainer = self.get_trainer(config, device, run_order, build_vocab=False, load=True)
-            csu_em, csu_micro_tup, csu_macro_tup = trainer.test()
+            csu_em, csu_micro_tup, csu_macro_tup = trainer.test(silent=silent)
             pp_em, pp_micro_tup, pp_macro_tup = trainer.evaluate(is_external=True, silent=silent)
 
             agg_csu_ems.append(csu_em); agg_csu_micro_tup.append(np.array(csu_micro_tup))
