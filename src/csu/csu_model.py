@@ -795,7 +795,7 @@ class Experiment(object):
             assert file_name != ''
             self.record_meta_result([csu_avg_em, csu_avg_micro, csu_avg_macro,
                                      pp_avg_em, pp_avg_micro, pp_avg_macro],
-                                    append=append, config=config)
+                                    append=append, config=config,file_name=file_name)
         elif return_avg:
             return [csu_avg_em, csu_avg_micro[0],
                     csu_avg_micro[1], csu_avg_micro[2],
