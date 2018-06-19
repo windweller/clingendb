@@ -180,6 +180,7 @@ class Dataset(object):
     def __init__(self, path='./data/csu/',
                  dataset_prefix='snomed_multi_label_no_des_',
                  test_data_name='adobe_abbr_matched_snomed_multi_label_no_des_test.tsv',
+                 # change this to 'adobe_combined_abbr_matched_snomed_multi_label_no_des_test.tsv'
                  label_size=42, fix_length=None):
         self.TEXT = ReversibleField(sequential=True, include_lengths=True, lower=False, fix_length=fix_length)
         self.LABEL = MultiLabelField(sequential=True, use_vocab=False, label_size=label_size,
@@ -759,6 +760,54 @@ class Experiment(object):
             ubs.append(ub); lbs.append(lb)
 
         return mean, ubs, lbs
+
+    def get_meta_result(self, config, device, rebuild_vocab=False, silent=False, return_avg=True):
+        # returns: csu_avg_em, csu_avg_micro, csu_avg_macro, pp_avg_em, pp_avg_micro, pp_avg_macro
+        # basically ONE row in the results table.
+        # return_avg: return 5 runs individually (for std, ci calculation), or return average only
+        if rebuild_vocab:
+            self.dataset.build_vocab(config, True)
+
+        agg_csu_ems, agg_pp_ems = [], []
+        agg_csu_micro_tup, agg_csu_macro_tup = [], []
+        agg_pp_micro_tup, agg_pp_macro_tup = [], []
+
+        for run_order in range(config.avg_run_times):
+            if not silent:
+                print("Executing order {}".format(run_order))
+            trainer = self.get_trainer(config, device, run_order, build_vocab=False, load=True)
+            csu_em, csu_micro_tup, csu_macro_tup = trainer.test()
+            pp_em, pp_micro_tup, pp_macro_tup = trainer.evaluate(is_external=True, silent=silent)
+
+            agg_csu_ems.append(csu_em); agg_csu_micro_tup.append(np.array(csu_micro_tup))
+            agg_csu_macro_tup.append(np.array(csu_macro_tup))
+            agg_pp_micro_tup.append(np.array(pp_micro_tup)); agg_pp_macro_tup.append(np.array(pp_macro_tup))
+            agg_pp_ems.append(pp_em)
+
+        csu_avg_em, pp_avg_em = np.average(agg_csu_ems), np.average(agg_pp_ems)
+        csu_avg_micro, csu_avg_macro = np.average(agg_csu_micro_tup, axis=0).tolist(), np.average(agg_csu_macro_tup,
+                                                                                                  axis=0).tolist()
+        pp_avg_micro, pp_avg_macro = np.average(agg_pp_micro_tup, axis=0).tolist(), np.average(agg_pp_macro_tup,
+                                                                                               axis=0).tolist()
+
+        if return_avg:
+            return [csu_avg_em, csu_avg_micro[0],
+                    csu_avg_micro[1], csu_avg_micro[2],
+                    csu_avg_macro[0], csu_avg_macro[1], csu_avg_macro[2],
+                    pp_avg_em, pp_avg_micro[0], pp_avg_micro[1], pp_avg_micro[2],
+                    pp_avg_macro[0], pp_avg_macro[1], pp_avg_macro[2]]
+        else:
+            return [agg_csu_ems, agg_csu_micro_tup, agg_csu_macro_tup,
+                    agg_pp_ems, agg_pp_micro_tup, agg_pp_macro_tup]
+
+    def get_meta_header(self):
+        # return a list of headers
+        # in real scenario, the first column is often 'model name' or 'run order'
+        return ['CSU EM', 'CSU micro-P', 'CSU micro-R', 'CSU micro-F1',
+                'CSU macro-P', 'CSU macro-R', 'CSU macro-F1',
+                'PP EM', 'PP micro-P', 'PP micro-R', 'PP micro-F1',
+                'PP macro-P', 'PP macro-R', 'PP macro-F1']
+
 
     def evaluate(self, config, device, is_external=False, rebuild_vocab=False, silent=False,
                  return_f1_ci=False):
