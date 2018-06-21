@@ -117,9 +117,8 @@ with open("../../data/csu/{}".format(file_name), 'r') as f:
         condense_labels = columns[5].split('|')
         collapse_label(condense_labels, stats_dict)
 
-        if progress % 20 == 0:
+        if progress % 100 == 0:
             print "time: {}s, progress: {} / {}".format(time.time() - start_time, progress, total)
-            break
 
 
 with open("../../data/csu/binned_dist_stat.json", 'wb') as f:
