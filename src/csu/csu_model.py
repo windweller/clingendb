@@ -725,6 +725,8 @@ class Abstention(object):
                                                                               loss.data[0], exp_cost))
                 iteration += 1
 
+        return reject_model
+
     @staticmethod
     def compute_exactly_k(k, probs):
         # k: int
