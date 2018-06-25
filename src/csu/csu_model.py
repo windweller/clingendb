@@ -22,16 +22,18 @@ from torch.nn.utils.rnn import pad_packed_sequence as unpack
 from torchtext import data
 from util import MultiLabelField, ReversibleField, BCEWithLogitsLoss, MultiMarginHierarchyLoss
 
+
 def get_ci(vals, return_range=False):
     if len(set(vals)) == 1:
         return (vals[0], vals[0])
     loc = np.mean(vals)
     scale = np.std(vals) / np.sqrt(len(vals))
-    range_0, range_1 = stats.t.interval(0.95, len(vals)-1, loc=loc, scale=scale)
+    range_0, range_1 = stats.t.interval(0.95, len(vals) - 1, loc=loc, scale=scale)
     if return_range:
         return range_0, range_1
     else:
         return range_1 - loc
+
 
 class Config(dict):
     def __init__(self, **kwargs):
@@ -462,6 +464,35 @@ class Trainer(object):
         return self.evaluate(is_test=True, silent=silent, return_by_label_stats=return_by_label_stats,
                              return_instances=return_instances)
 
+    def get_abstention_data_iter(self, data_iter):
+        batched_x_list = []
+        batched_y_list = []
+        batched_y_hat_list = []
+        batched_loss_list = []
+
+        for iter, data in enumerate(data_iter):
+            (x, x_lengths), y = data.Text, data.Description
+            output_vec = self.classifier.get_vectors(x, x_lengths)  # this is just logit (before calling sigmoid)
+            final_rep = torch.max(output_vec, 0)[0].squeeze(0)
+            logits = self.classifier.get_logits(output_vec)
+            loss = self.bce_logit_loss(logits, y) # this per-example
+
+            # We create new Tensor Variable
+            batched_x_list.append(final_rep.detach())
+            batched_y_list.append(y.detach())
+            batched_y_hat_list.append(logits.detach())  # .tolist()
+            batched_loss_list.append(loss.detach())  # .tolist()
+
+        return batched_x_list, batched_y_list, batched_y_hat_list, batched_loss_list
+
+    def get_abstention_data(self):
+        # used by Abstention model
+        self.classifier.eval()
+        train_data = self.get_abstention_data_iter(self.train_iter)
+        test_data = self.get_abstention_data_iter(self.test_iter)
+
+        return train_data, test_data
+
     def save_error_examples(self, error_dict, label_names, save_address):
         import codecs
         # error_dict: {label: []}
@@ -514,7 +545,6 @@ class Trainer(object):
 
         return error_dict
 
-
     def evaluate(self, is_test=False, is_external=False, silent=False, return_by_label_stats=False,
                  return_instances=False):
         self.classifier.eval()
@@ -539,7 +569,8 @@ class Trainer(object):
 
         # this is actually the accurate exact match
         em = metrics.accuracy_score(ys, preds)
-        accu = np.array([metrics.accuracy_score(ys[:, i], preds[:, i]) for i in range(self.config.label_size)], dtype='float32')
+        accu = np.array([metrics.accuracy_score(ys[:, i], preds[:, i]) for i in range(self.config.label_size)],
+                        dtype='float32')
         p, r, f1, s = metrics.precision_recall_fscore_support(ys, preds, average=None)
 
         if return_by_label_stats:
@@ -572,6 +603,116 @@ class Trainer(object):
 
         return em, (micro_p, micro_r, micro_f1), (macro_p, macro_r, macro_f1)
 
+
+class AbstentionConfig(Config):
+    def __init__(self, obj_loss=False, obj_accu=False,
+                 inp_logit=False, inp_pred=False, inp_h=False, inp_conf=False, clip_grad=5., no_shrink=True):
+
+        # some logic checks
+        assert inp_logit + inp_pred + inp_h + inp_conf == 1, "only one input type"
+        assert obj_loss + obj_accu == 1, "only one objective type"
+
+        super(AbstentionConfig, self).__init__(obj_loss=obj_loss,
+                                               obj_accu=obj_accu,  # objective is accu
+                                               inp_logit=inp_logit,  # input is logit (before sigmoid)
+                                               inp_pred=inp_pred,  # input is pred (after sigmoid)
+                                               inp_h=inp_h,
+                                               inp_conf=inp_conf,
+                                               clip_grad=clip_grad,
+                                               no_shrink=no_shrink)
+
+
+class RejectModel(nn.Module):
+    def __init__(self, config, deeptag_config):
+        super(RejectModel, self).__init__()
+        if config['inp_h']:
+            reject_dim = deeptag_config.hidden_size
+        else:
+            reject_dim = deeptag_config.label_size
+
+        if config['no_shrink']:
+            self.reject_model = nn.Sequential(
+                nn.Linear(reject_dim, int(reject_dim)),
+                nn.SELU(),
+                nn.Linear(int(reject_dim), int(reject_dim)),
+                nn.SELU(),
+                nn.Linear(int(reject_dim), 1))
+        else:
+            self.reject_model = nn.Sequential(
+                nn.Linear(reject_dim, int(reject_dim / 2.)),
+                nn.SELU(),
+                nn.Linear(int(reject_dim / 2.), int(reject_dim / 4.)),
+                nn.SELU(),
+                nn.Linear(int(reject_dim / 4.), 1))
+
+    def pred(self, x):
+        return self.reject_model(x)
+
+    def reject(self, x, gamma=0.):
+        # x: (batch_size, rej_dim)
+        rej_choices = self.reject_model(x) > gamma
+        return rej_choices
+
+from itertools import izip
+
+class Abstention(object):
+    # Similar to Experiment class but used to train and manage Reject_Model
+    def __init__(self, experiment, deeptag_config):
+        self.mse_loss = torch.nn.MSELoss()
+        self.sigmoid = torch.nn.Sigmoid()
+
+        self.dataset = experiment.dataset
+        self.experiment = experiment
+        self.deeptag_config = deeptag_config
+
+    def get_reject_model(self, config, gpu_id=-1):
+        reject_model = RejectModel(config, self.deeptag_config)
+        if gpu_id != -1:
+            reject_model.cuda(gpu_id)
+        return reject_model
+
+    def train_loss(self, config, train_data, device, lr=0.001):
+        # each training requires a new optimizer
+        # these are already Variables
+        # batched_x_list, batched_y_list, batched_y_hat_list, batched_loss_list = train_data
+
+        reject_model = self.get_reject_model(config, device)
+        rej_optimizer = optim.Adam(reject_model.parameters(), lr=lr)
+
+        # Already variables on CUDA devices
+        for x, y, y_hat, orig_loss in izip(train_data):
+            reject_model.zero_grad()
+            inp = None
+            if config.inp_logit:
+                inp = y_hat
+            elif config.inp_pred:
+                inp = torch.sigmoid(y_hat)
+            elif config.inp_h:
+                inp = x
+            elif config.inp_conf:
+                inp = torch.sigmoid(y_hat).cpu().apply_(lambda x: x if x >= 0.5 else 1 - x).cuda(device)
+
+            pred_obj = torch.squeeze(reject_model.pred(inp))
+
+            if config['obj_loss']:
+                true_obj = orig_loss.mean(dim=1)
+            elif config['obj_accu']:
+                # TODO: write this part well!!
+                # TODO: need some experiments :P
+                preds = torch.sigmoid(y_hat) > 0.5
+
+    def get_deeptag_data(self, deeptag_config, run_order, device, rebuild_vocab=True):
+        # send the model in here, we run it
+        # need to specify which model to load (exact number)
+        # the "data" obtained are universal -- meaning they stay the same during the
+        # abstention module training
+        if rebuild_vocab:
+            self.dataset.build_vocab(deeptag_config, True)
+
+        trainer = self.experiment.get_trainer(deeptag_config, device, run_order, build_vocab=False, load=True)
+        train_data, test_data = trainer.get_abstention_data()
+
+        return train_data, test_data
 
 # Experiment class can also be "handled" by Jupyter Notebook
 # Usage guide:
@@ -706,7 +847,6 @@ class Experiment(object):
         trainer_folder = config.run_name if config.run_name != 'default' else self.config_to_string(config)
 
         for run_order in range(config.avg_run_times):
-
             self.set_run_random_seed(run_order)  # hopefully this is enough...
 
             classifier = Classifier(self.dataset.vocab, config)
@@ -728,13 +868,18 @@ class Experiment(object):
                                        append=append, trainer_path=trainer.save_path, run_order=run_order,
                                        print_header=print_header)
 
-            agg_csu_ems.append(csu_em); agg_pp_ems.append(pp_em)
-            agg_csu_micro_tup.append(np.array(csu_micro_tup)); agg_csu_macro_tup.append(np.array(csu_macro_tup))
-            agg_pp_micro_tup.append(np.array(pp_micro_tup)); agg_pp_macro_tup.append(np.array(pp_macro_tup))
+            agg_csu_ems.append(csu_em);
+            agg_pp_ems.append(pp_em)
+            agg_csu_micro_tup.append(np.array(csu_micro_tup));
+            agg_csu_macro_tup.append(np.array(csu_macro_tup))
+            agg_pp_micro_tup.append(np.array(pp_micro_tup));
+            agg_pp_macro_tup.append(np.array(pp_macro_tup))
 
         csu_avg_em, pp_avg_em = np.average(agg_csu_ems), np.average(agg_pp_ems)
-        csu_avg_micro, csu_avg_macro = np.average(agg_csu_micro_tup, axis=0).tolist(), np.average(agg_csu_macro_tup, axis=0).tolist()
-        pp_avg_micro, pp_avg_macro = np.average(agg_pp_micro_tup, axis=0).tolist(), np.average(agg_pp_macro_tup, axis=0).tolist()
+        csu_avg_micro, csu_avg_macro = np.average(agg_csu_micro_tup, axis=0).tolist(), np.average(agg_csu_macro_tup,
+                                                                                                  axis=0).tolist()
+        pp_avg_micro, pp_avg_macro = np.average(agg_pp_micro_tup, axis=0).tolist(), np.average(agg_pp_macro_tup,
+                                                                                               axis=0).tolist()
 
         self.record_meta_result([csu_avg_em, csu_avg_micro, csu_avg_macro,
                                  pp_avg_em, pp_avg_micro, pp_avg_macro],
@@ -757,7 +902,8 @@ class Experiment(object):
         for j in range(config.label_size):
             mean.append(np.mean(label_list_metric[j]))
             lb, ub = get_ci(label_list_metric[j], return_range=True)
-            ubs.append(ub); lbs.append(lb)
+            ubs.append(ub);
+            lbs.append(lb)
 
         return mean, ubs, lbs
 
@@ -780,9 +926,11 @@ class Experiment(object):
             csu_em, csu_micro_tup, csu_macro_tup = trainer.test(silent=silent)
             pp_em, pp_micro_tup, pp_macro_tup = trainer.evaluate(is_external=True, silent=silent)
 
-            agg_csu_ems.append(csu_em); agg_csu_micro_tup.append(np.array(csu_micro_tup))
+            agg_csu_ems.append(csu_em);
+            agg_csu_micro_tup.append(np.array(csu_micro_tup))
             agg_csu_macro_tup.append(np.array(csu_macro_tup))
-            agg_pp_micro_tup.append(np.array(pp_micro_tup)); agg_pp_macro_tup.append(np.array(pp_macro_tup))
+            agg_pp_micro_tup.append(np.array(pp_micro_tup));
+            agg_pp_macro_tup.append(np.array(pp_macro_tup))
             agg_pp_ems.append(pp_em)
 
         csu_avg_em, pp_avg_em = np.average(agg_csu_ems), np.average(agg_pp_ems)
@@ -795,7 +943,7 @@ class Experiment(object):
             assert file_name != ''
             self.record_meta_result([csu_avg_em, csu_avg_micro, csu_avg_macro,
                                      pp_avg_em, pp_avg_micro, pp_avg_macro],
-                                    append=append, config=config,file_name=file_name)
+                                    append=append, config=config, file_name=file_name)
         elif return_avg:
             return [csu_avg_em, csu_avg_micro[0],
                     csu_avg_micro[1], csu_avg_micro[2],
@@ -814,7 +962,6 @@ class Experiment(object):
                 'PP EM', 'PP micro-P', 'PP micro-R', 'PP micro-F1',
                 'PP macro-P', 'PP macro-R', 'PP macro-F1']
 
-
     def evaluate(self, config, device, is_external=False, rebuild_vocab=False, silent=False,
                  return_f1_ci=False):
         # Similr to trainer.evaluate() signature
@@ -832,15 +979,19 @@ class Experiment(object):
             if not silent:
                 print("Executing order {}".format(run_order))
             trainer = self.get_trainer(config, device, run_order, build_vocab=False, load=True)
-            p, r, f1, s, accu = trainer.evaluate(is_test=True, is_external=is_external, return_by_label_stats=True, silent=True)
-            agg_p += p; agg_r += r; agg_f1 += f1; agg_accu += accu
+            p, r, f1, s, accu = trainer.evaluate(is_test=True, is_external=is_external, return_by_label_stats=True,
+                                                 silent=True)
+            agg_p += p;
+            agg_r += r;
+            agg_f1 += f1;
+            agg_accu += accu
             agg_f1_list.append(f1)
 
         if return_f1_ci:
             return self.compute_label_metrics_ci(config, agg_f1_list)
 
-        agg_p, agg_r, agg_f1, agg_accu = agg_p / float(config.avg_run_times), agg_r/ float(config.avg_run_times), \
-                                         agg_f1/ float(config.avg_run_times), agg_accu / float(config.avg_run_times)
+        agg_p, agg_r, agg_f1, agg_accu = agg_p / float(config.avg_run_times), agg_r / float(config.avg_run_times), \
+                                         agg_f1 / float(config.avg_run_times), agg_accu / float(config.avg_run_times)
 
         return agg_p, agg_r, agg_f1, agg_accu
 
@@ -935,7 +1086,9 @@ if __name__ == '__main__':
     curr_exp = Experiment(dataset=dataset, exp_save_path='./{}/'.format(exp_name))
 
     if action == 'active':
-        import IPython; IPython.embed()
+        import IPython;
+
+        IPython.embed()
     elif action == 'baseline':
         # baseline LSTM
         run_baseline(device_num)
