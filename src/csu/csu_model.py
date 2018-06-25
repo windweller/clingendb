@@ -687,6 +687,7 @@ class Abstention(object):
         for n in range(epochs):
             iteration = 0
             # Already variables on CUDA devices
+            print("training at epoch {}".format(n))
             for x, y, y_hat, orig_loss in izip(train_data):
                 reject_model.zero_grad()
                 inp = None
