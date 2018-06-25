@@ -701,15 +701,15 @@ class Abstention(object):
                 # TODO: need some experiments :P
                 preds = torch.sigmoid(y_hat) > 0.5
 
-    def get_deeptag_data(self, deeptag_config, run_order, device, rebuild_vocab=True):
+    def get_deeptag_data(self, run_order, device, rebuild_vocab=True):
         # send the model in here, we run it
         # need to specify which model to load (exact number)
         # the "data" obtained are universal -- meaning they stay the same during the
         # abstention module training
         if rebuild_vocab:
-            self.dataset.build_vocab(deeptag_config, True)
+            self.dataset.build_vocab(self.deeptag_config, True)
 
-        trainer = self.experiment.get_trainer(deeptag_config, device, run_order, build_vocab=False, load=True)
+        trainer = self.experiment.get_trainer(self.deeptag_config, device, run_order, build_vocab=False, load=True)
         train_data, test_data = trainer.get_abstention_data()
 
         return train_data, test_data
