@@ -829,7 +829,7 @@ class Abstention(object):
         ems = []; f1s = []
         rej_portions = np.linspace(0., 0.9, num=9)
         for rej_p in rej_portions:
-            em, f1 = self.drop(data_iter, model, rej_p, config, device, conf_abstention, weighted_f1)
+            em, f1 = self.drop(data_iter, model, rej_p, config, device, conf_abstention, weighted_f1=weighted_f1)
             ems.append(em); f1s.append(f1)
         return ems, f1s
 
