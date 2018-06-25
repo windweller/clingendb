@@ -8,11 +8,13 @@ import csv
 import logging
 import random
 import ftfy
+import math
 from sklearn import metrics
 from scipy import stats
 from os.path import join as pjoin
 
 from collections import defaultdict
+from itertools import combinations, izip
 import torch
 import torch.optim as optim
 import torch.nn as nn
@@ -653,7 +655,6 @@ class RejectModel(nn.Module):
         rej_choices = self.reject_model(x) > gamma
         return rej_choices
 
-from itertools import izip
 
 class Abstention(object):
     # Similar to Experiment class but used to train and manage Reject_Model
@@ -671,35 +672,158 @@ class Abstention(object):
             reject_model.cuda(gpu_id)
         return reject_model
 
-    def train_loss(self, config, train_data, device, lr=0.001):
+    def train_loss(self, config, train_data, device, epochs=3, lr=0.001, print_log=False):
         # each training requires a new optimizer
         # these are already Variables
         # batched_x_list, batched_y_list, batched_y_hat_list, batched_loss_list = train_data
+        # we used to return losses, but now we all know it works..so no need
 
         reject_model = self.get_reject_model(config, device)
         rej_optimizer = optim.Adam(reject_model.parameters(), lr=lr)
 
-        # Already variables on CUDA devices
-        for x, y, y_hat, orig_loss in izip(train_data):
-            reject_model.zero_grad()
-            inp = None
-            if config.inp_logit:
-                inp = y_hat
-            elif config.inp_pred:
-                inp = torch.sigmoid(y_hat)
-            elif config.inp_h:
-                inp = x
-            elif config.inp_conf:
-                inp = torch.sigmoid(y_hat).cpu().apply_(lambda x: x if x >= 0.5 else 1 - x).cuda(device)
+        exp_cost = None
 
-            pred_obj = torch.squeeze(reject_model.pred(inp))
+        for n in range(epochs):
+            iteration = 0
+            # Already variables on CUDA devices
+            for x, y, y_hat, orig_loss in izip(train_data):
+                reject_model.zero_grad()
+                inp = None
+                if config.inp_logit:
+                    inp = y_hat
+                elif config.inp_pred:
+                    inp = torch.sigmoid(y_hat)
+                elif config.inp_h:
+                    inp = x
+                elif config.inp_conf:
+                    inp = torch.sigmoid(y_hat).cpu().apply_(lambda x: x if x >= 0.5 else 1 - x).cuda(device)
 
-            if config['obj_loss']:
-                true_obj = orig_loss.mean(dim=1)
-            elif config['obj_accu']:
-                # TODO: write this part well!!
-                # TODO: need some experiments :P
-                preds = torch.sigmoid(y_hat) > 0.5
+                pred_obj = torch.squeeze(reject_model.pred(inp))
+
+                if config['obj_loss']:
+                    true_obj = orig_loss.mean(dim=1)
+                elif config['obj_accu']:
+                    preds = torch.sigmoid(y_hat) > 0.5
+                    true_obj = (preds.type_as(y) == y).type_as(y).mean(dim=1)
+
+                loss = self.mse_loss(pred_obj, true_obj)
+
+                loss.backward()
+                torch.nn.utils.clip_grad_norm(reject_model.parameters(), config['clip_grad'])
+                rej_optimizer.step()
+
+                if not exp_cost:
+                    exp_cost = loss.data[0]
+                else:
+                    exp_cost = 0.99 * exp_cost + 0.01 * loss.data[0]
+
+                if iteration % 100 == 0 and print_log:
+                    # avg_rej_rate = rej_scores.mean().data[0]
+                    print("iter {} lr={} train_loss={} exp_cost={} \n".format(iteration,
+                                                                              rej_optimizer.param_groups[0]['lr'],
+                                                                              loss.data[0], exp_cost))
+                iteration += 1
+
+    @staticmethod
+    def compute_exactly_k(k, probs):
+        # k: int
+        # probs: [float] (confidence score!!)
+        score = 0.
+        for idx_tup in combinations(range(len(probs)), k):
+            success = 1.
+            for idx in idx_tup:
+                success += math.log(probs[idx])
+            failure = 1.
+            for idx in set(range(len(probs))) - set(idx_tup):
+                failure += math.log(1 - probs[idx])
+            score += success + failure
+
+        return score
+
+    def drop(self, data_iter, reject_model, drop_portion, config, device, conf_abstention=False, return_dropped=False):
+        # apply to whatever documents we want and tag them with abstention priority scores
+        # data_iter should be the test set of CSU
+        # data_iter is actually not an iterator
+        reject_model.eval()
+        score_reverse = True if config['obj_loss'] and not conf_abstention else False
+
+        prior_score_pred_y_pairs = []
+
+        for x, y, y_hat, orig_loss in izip(data_iter):
+            if not conf_abstention:
+                inp = None
+                if config.inp_logit:
+                    inp = y_hat
+                elif config.inp_pred:
+                    inp = torch.sigmoid(y_hat)
+                elif config.inp_h:
+                    inp = x
+                elif config.inp_conf:
+                    inp = torch.sigmoid(y_hat).cpu().apply_(lambda x: x if x >= 0.5 else 1 - x).cuda(device)
+
+                pred_obj = torch.squeeze(reject_model.pred(inp))
+                abs_scores = pred_obj.data.cpu().numpy().tolist()
+            else:
+                # conf_abstention methods
+                abs_scores = []
+                confs = torch.sigmoid(y_hat).cpu().apply_(lambda x: x if x >= 0.5 else 1 - x)
+                confs = confs.data.numpy().tolist()
+                for y_hhat in confs:
+                    abs_score = self.compute_exactly_k(42, y_hhat)
+                    abs_scores.append(abs_score)
+
+            y_hat = y_hat.data.cpu().numpy()
+            y = y.data.cpu().numpy()
+            for i, abs_score in enumerate(abs_scores):
+                preds = (y_hat[i] > 0.5).astype(float)
+                y_np = y[i]
+                prior_score_pred_y_pairs.append((abs_score, [preds, y_np]))
+
+        # dropping process
+        total_examples = len(prior_score_pred_y_pairs)
+        drop_num = int(math.ceil(total_examples * drop_portion))
+
+        # drop from smallest value to largest value (accuracy)
+        sorted_list = sorted(prior_score_pred_y_pairs, key=lambda x: x[0], reverse=score_reverse)
+
+        accepted_exs = sorted_list[drop_num:]  # take examples after drop_num
+        rejected_exs = sorted_list[:drop_num]
+
+        # then we compute the EM, micro-F1, macro-F1
+        all_preds, all_y_labels = [], []
+        for ex in accepted_exs:
+            pred, y = ex[1]
+            all_preds.append(pred);  all_y_labels.append(y)
+
+        if return_dropped:
+            rej_preds = []
+            rej_y_labels = []
+            for ex in rejected_exs:
+                pred, y = ex[1]
+                rej_preds.append(pred); rej_y_labels.append(y)
+
+        preds = np.vstack(all_preds)
+        ys = np.vstack(all_y_labels)
+
+        # this is actually the accurate exact match
+        em = metrics.accuracy_score(ys, preds)
+        p, r, f1, s = metrics.precision_recall_fscore_support(ys, preds, average=None)
+        f1 = np.average(f1, weights=s)
+
+        if return_dropped:
+            return rej_preds, rej_y_labels, em, f1
+
+        return em, f1
+
+    def get_ems_f1s(self, data_iter, model, config, device, conf_abstention=False):
+        # data_iter: test data
+        # data_iter, reject_model, drop_portion, config, device
+        ems = []; f1s = []
+        rej_portions = np.linspace(0., 0.9, num=9)
+        for rej_p in rej_portions:
+            em, f1 = self.drop(data_iter, model, rej_p, config, device, conf_abstention)
+            ems.append(em); f1s.append(f1)
+        return ems, f1s
 
     def get_deeptag_data(self, run_order, device, rebuild_vocab=True):
         # send the model in here, we run it
