@@ -688,7 +688,7 @@ class Abstention(object):
             iteration = 0
             # Already variables on CUDA devices
             print("training at epoch {}".format(n))
-            for x, y, y_hat, orig_loss in izip(train_data):
+            for x, y, y_hat, orig_loss in izip(*train_data):
                 reject_model.zero_grad()
                 inp = None
                 if config.inp_logit:
@@ -753,7 +753,7 @@ class Abstention(object):
 
         prior_score_pred_y_pairs = []
 
-        for x, y, y_hat, orig_loss in izip(data_iter):
+        for x, y, y_hat, orig_loss in izip(*data_iter):
             if not conf_abstention:
                 inp = None
                 if config.inp_logit:
