@@ -823,13 +823,13 @@ class Abstention(object):
 
         return em, f1
 
-    def get_ems_f1s(self, data_iter, model, config, device, conf_abstention=False):
+    def get_ems_f1s(self, data_iter, model, config, device, conf_abstention=False, weighted_f1=True):
         # data_iter: test data
         # data_iter, reject_model, drop_portion, config, device
         ems = []; f1s = []
         rej_portions = np.linspace(0., 0.9, num=9)
         for rej_p in rej_portions:
-            em, f1 = self.drop(data_iter, model, rej_p, config, device, conf_abstention)
+            em, f1 = self.drop(data_iter, model, rej_p, config, device, conf_abstention, weighted_f1)
             ems.append(em); f1s.append(f1)
         return ems, f1s
 
