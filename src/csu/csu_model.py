@@ -614,7 +614,7 @@ class AbstentionConfig(Config):
         assert inp_logit + inp_pred + inp_h + inp_conf == 1, "only one input type"
         assert obj_loss + obj_accu == 1, "only one objective type"
 
-        super(Config, self).__init__(obj_loss=obj_loss,
+        super(AbstentionConfig, self).__init__(obj_loss=obj_loss,
                                                obj_accu=obj_accu,  # objective is accu
                                                inp_logit=inp_logit,  # input is logit (before sigmoid)
                                                inp_pred=inp_pred,  # input is pred (after sigmoid)
