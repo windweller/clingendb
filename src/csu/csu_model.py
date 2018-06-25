@@ -665,6 +665,7 @@ class Abstention(object):
         self.dataset = experiment.dataset
         self.experiment = experiment
         self.deeptag_config = deeptag_config
+        self.experiment.set_random_seed(deeptag_config)
 
     def get_reject_model(self, config, gpu_id=-1):
         reject_model = RejectModel(config, self.deeptag_config)
