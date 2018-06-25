@@ -629,6 +629,8 @@ class RejectModel(nn.Module):
         super(RejectModel, self).__init__()
         if config['inp_h']:
             reject_dim = deeptag_config.hidden_size
+            if deeptag_config.bidir is True:
+                reject_dim *= 2
         else:
             reject_dim = deeptag_config.label_size
 
