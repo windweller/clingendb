@@ -848,6 +848,23 @@ class Abstention(object):
 
         return train_data, test_data
 
+    def save_deeptag_data(self, run_order, device, save_file_prefix='deeptag', rebuild_vocab=True):
+        # save it into the same format as LTR Vol 2.
+        train_data, test_data = self.get_deeptag_data(run_order, device, rebuild_vocab)
+        list_train_data = []
+        list_test_data = []
+        for i in range(len(train_data)):
+            list_train_data.append([train_data[i][j].data.cpu().numpy().tolist() for j in range(len(train_data[i]))])
+        for i in range(len(test_data)):
+            list_test_data.append([test_data[i][j].data.cpu().numpy().tolist() for j in range(len(test_data[i]))])
+
+        with open(pjoin(self.experiment.exp_save_path, save_file_prefix+"_train_data.json"), 'wb') as f:
+            json.dump(list_train_data, f)
+
+        with open(pjoin(self.experiment.exp_save_path, save_file_prefix+"_test_data.json"), 'wb') as f:
+            json.dump(list_train_data, f)
+
+
 # Experiment class can also be "handled" by Jupyter Notebook
 # Usage guide:
 # config also manages random seed. So it's possible to just swap in and out random seed from config
