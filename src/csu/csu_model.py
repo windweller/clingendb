@@ -816,7 +816,7 @@ class Abstention(object):
         # this is actually the accurate exact match
         em = metrics.accuracy_score(ys, preds)
         p, r, f1, s = metrics.precision_recall_fscore_support(ys, preds, average=None)
-        f1 = np.average(f1, weights=s) if weighted_f1 else np.average(f1)
+        f1 = np.average(f1, weights=s) if weighted_f1 else np.average(f1[f1.nonzero()])
 
         if return_dropped:
             return rej_preds, rej_y_labels, em, f1
