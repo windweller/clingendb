@@ -608,7 +608,8 @@ class Trainer(object):
 
 class AbstentionConfig(Config):
     def __init__(self, obj_loss=False, obj_accu=False,
-                 inp_logit=False, inp_pred=False, inp_h=False, inp_conf=False, clip_grad=5., no_shrink=True):
+                 inp_logit=False, inp_pred=False, inp_h=False, inp_conf=False, clip_grad=5., no_shrink=True,
+                 dropout=0.):
 
         # some logic checks
         assert inp_logit + inp_pred + inp_h + inp_conf == 1, "only one input type"
@@ -621,7 +622,8 @@ class AbstentionConfig(Config):
                                                inp_h=inp_h,
                                                inp_conf=inp_conf,
                                                clip_grad=clip_grad,
-                                               no_shrink=no_shrink)
+                                               no_shrink=no_shrink,
+                                               dropout=dropout)
 
 
 class RejectModel(nn.Module):
@@ -667,7 +669,6 @@ class Abstention(object):
         self.dataset = experiment.dataset
         self.experiment = experiment
         self.deeptag_config = deeptag_config
-        self.experiment.set_random_seed(deeptag_config)
 
     def get_reject_model(self, config, gpu_id=-1):
         reject_model = RejectModel(config, self.deeptag_config)
@@ -746,7 +747,8 @@ class Abstention(object):
 
         return score
 
-    def drop(self, data_iter, reject_model, drop_portion, config, device, conf_abstention=False, return_dropped=False):
+    def drop(self, data_iter, reject_model, drop_portion, config, device, conf_abstention=False, return_dropped=False,
+             weighted_f1=True):
         # apply to whatever documents we want and tag them with abstention priority scores
         # data_iter should be the test set of CSU
         # data_iter is actually not an iterator
@@ -814,7 +816,7 @@ class Abstention(object):
         # this is actually the accurate exact match
         em = metrics.accuracy_score(ys, preds)
         p, r, f1, s = metrics.precision_recall_fscore_support(ys, preds, average=None)
-        f1 = np.average(f1, weights=s)
+        f1 = np.average(f1, weights=s) if weighted_f1 else np.average(f1)
 
         if return_dropped:
             return rej_preds, rej_y_labels, em, f1
@@ -838,6 +840,8 @@ class Abstention(object):
         # abstention module training
         if rebuild_vocab:
             self.dataset.build_vocab(self.deeptag_config, True)
+
+        self.experiment.set_run_random_seed(run_order)
 
         trainer = self.experiment.get_trainer(self.deeptag_config, device, run_order, build_vocab=False, load=True)
         train_data, test_data = trainer.get_abstention_data()
