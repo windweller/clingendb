@@ -101,10 +101,8 @@ def extract_examples(filename, header=True):
 
     return examples, labels_dist
 
-def examples_to_csv(examples, csv_file_prefix):
+def examples_to_csv(examples, serial_numbers, csv_file_prefix):
     # process them into tsv format, but also collect frequency distribution
-    serial_numbers = range(len(examples))
-    np.random.shuffle(serial_numbers)
 
     train_numbers = serial_numbers[:int(np.rint(len(examples) * split_proportions['train']))]
     valid_numbers = serial_numbers[
@@ -157,5 +155,9 @@ if __name__ == '__main__':
     with open('../../data/csu/snomed_labels.json', 'rb') as f:
         label_list = json.load(f)  # an actual list!
 
-    examples_to_csv(medsum_all_fields_no_diagnosis_examples, 'all_fields')
-    examples_to_csv(medsum_revised_fields1_no_diagnosis_examples, 'revised_fields')
+    # so both are in the same order!!
+    serial_numbers = range(len(medsum_all_fields_no_diagnosis_examples))
+    np.random.shuffle(serial_numbers)
+
+    examples_to_csv(medsum_all_fields_no_diagnosis_examples, serial_numbers, 'all_fields')
+    examples_to_csv(medsum_revised_fields1_no_diagnosis_examples, serial_numbers, 'revised_fields')
