@@ -24,7 +24,6 @@ from torch.nn.utils.rnn import pad_packed_sequence as unpack
 from torchtext import data
 from util import MultiLabelField, ReversibleField, BCEWithLogitsLoss, MultiMarginHierarchyLoss
 
-
 def get_ci(vals, return_range=False):
     if len(set(vals)) == 1:
         return (vals[0], vals[0])
@@ -1207,9 +1206,6 @@ def run_c_penalty(device, sigma_M, sigma_B, sigma_W, bidir=False):
     # curr_exp.execute(trainer=trainer)
 
 
-# TODO: maybe code in multi-run support (over many random seeds)
-# TODO: multi-run support
-# TODO: 1.
 if __name__ == '__main__':
     # if we just call this file, it will set up an interactive console
     random.seed(1234)
@@ -1233,8 +1229,21 @@ if __name__ == '__main__':
     avg_run_times = 1 if avg_run_times.strip() == '' else int(avg_run_times)
     avg_run_times = 5 if avg_run_times > 5 else avg_run_times
 
+    dataset_number = raw_input("enter dataset name prefix id (0=snomed_multi_label_no_des_ \n "
+                               "1=snomed_revised_fields_multi_label_no_des_ \n"
+                               "2=snomed_all_fields_multi_label_no_des_): \n")
+
+    if int(dataset_number) == 1:
+        dataset_prefix = 'snomed_multi_label_no_des_'
+    elif int(dataset_number) == 2:
+        dataset_prefix = 'snomed_revised_fields_multi_label_no_des_'
+    elif int(dataset_number) == 3:
+        dataset_prefix = 'snomed_all_fields_multi_label_no_des_'
+    else:
+        raise Exception("Not valid choice")
+
     print("loading in dataset...will take 3-4 minutes...")
-    dataset = Dataset()
+    dataset = Dataset(dataset_prefix=dataset_prefix)
 
     curr_exp = Experiment(dataset=dataset, exp_save_path='./{}/'.format(exp_name))
 
@@ -1255,17 +1264,17 @@ if __name__ == '__main__':
         # run_bidir_baseline(device_num)
         #
         # # baseline LSTM + M + bidir
-        # run_m_penalty(device_num, beta=1e-4, bidir=True)
-        # run_m_penalty(device_num, beta=1e-3, bidir=True)
+        run_m_penalty(device_num, beta=1e-4, bidir=True)
+        run_m_penalty(device_num, beta=1e-3, bidir=True)
         #
         # run_c_penalty(device_num, sigma_M=1e-5, sigma_B=1e-4, sigma_W=1e-4, bidir=True)
         # run_c_penalty(device_num, sigma_M=1e-4, sigma_B=1e-3, sigma_W=1e-3, bidir=True)
         #
-        # run_m_penalty(device_num, beta=1e-4)
+        run_m_penalty(device_num, beta=1e-4)
         run_m_penalty(device_num, beta=1e-3)
 
-        run_c_penalty(device_num, sigma_M=1e-5, sigma_B=1e-4, sigma_W=1e-4)
-        run_c_penalty(device_num, sigma_M=1e-4, sigma_B=1e-3, sigma_W=1e-3)
+        # run_c_penalty(device_num, sigma_M=1e-5, sigma_B=1e-4, sigma_W=1e-4)
+        # run_c_penalty(device_num, sigma_M=1e-4, sigma_B=1e-3, sigma_W=1e-3)
 
     elif action == 'cluster':
         # baseline LSTM + C
