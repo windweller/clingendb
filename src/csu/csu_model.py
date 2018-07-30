@@ -7,7 +7,6 @@ import os
 import csv
 import logging
 import random
-import ftfy
 import math
 from sklearn import metrics
 from scipy import stats
