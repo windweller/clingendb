@@ -181,7 +181,8 @@ class Classifier(nn.Module):
 class Dataset(object):
     def __init__(self, path='./data/csu/',
                  dataset_prefix='snomed_multi_label_no_des_',
-                 test_data_name='adobe_abbr_matched_snomed_multi_label_no_des_test.tsv',
+                 # test_data_name='adobe_abbr_matched_snomed_multi_label_no_des_test.tsv',
+                 test_data_name='adobe_combined_abbr_matched_snomed_multi_label_no_des_test.tsv',
                  # change this to 'adobe_combined_abbr_matched_snomed_multi_label_no_des_test.tsv'
                  label_size=42, fix_length=None):
         self.TEXT = ReversibleField(sequential=True, include_lengths=True, lower=False, fix_length=fix_length)
