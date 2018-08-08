@@ -243,7 +243,10 @@ class Classifier(nn.Module):
         return output
 
     def get_logits(self, output_vec):
-        output = torch.max(output_vec, 0)[0].squeeze(0)
+        if self.config.conv_enc:
+            output = output_vec
+        else:
+            output = torch.max(output_vec, 0)[0].squeeze(0)
         return self.out(output)
 
     def get_softmax_weight(self):
