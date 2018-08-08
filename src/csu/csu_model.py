@@ -194,14 +194,46 @@ class ConvNetEncoder(nn.Module):
         return emb
 
 
+"""
+Normal ConvNet
+"""
+class NormalConvNetEncoder(nn.Module):
+    def __init__(self, config):
+        super(NormalConvNetEncoder, self).__init__()
+        self.word_emb_dim = config['word_emb_dim']
+        self.enc_lstm_dim = config['enc_lstm_dim']
+        self.conv = nn.Conv2d(in_channels=1, out_channels=self.enc_lstm_dim, kernel_size=(3, self.word_emb_dim), stride=(1, self.word_emb_dim))
+
+    def encode(self, inputs):
+        output = inputs.transpose(0, 1).unsqueeze(1) # [batch_size, in_kernel, seq_length, embed_dim]
+        output = F.relu(self.conv(output)) # conv -> [batch_size, out_kernel, seq_length, 1]
+        output = output.squeeze(3).max(2)[0] # max_pool -> [batch_size, out_kernel]
+        return output
+
+    def forward(self, sent_tuple):
+        # sent_len: [max_len, ..., min_len] (batch)
+        # sent: Variable(seqlen x batch x worddim)
+        sent, sent_len = sent_tuple
+        emb = self.encode(sent)
+        return emb
+
+
 class Classifier(nn.Module):
     def __init__(self, vocab, config):
         super(Classifier, self).__init__()
         self.config = config
         self.drop = nn.Dropout(config.dropout)  # embedding dropout
-        if config.conv_enc:
+        if config.conv_enc == 1:
             kernel_size = config.hidden_size / 8
+            print(kernel_size)
             self.encoder = ConvNetEncoder({
+                'word_emb_dim': config.emb_dim,
+                'enc_lstm_dim': kernel_size if not config.bidir else kernel_size * 2
+            })
+        elif config.conv_enc == 2:
+            kernel_size = config.hidden_size
+            print(kernel_size)
+            self.encoder = NormalConvNetEncoder({
                 'word_emb_dim': config.emb_dim,
                 'enc_lstm_dim': kernel_size if not config.bidir else kernel_size * 2
             })
@@ -1289,7 +1321,7 @@ def run_c_penalty(device, sigma_M, sigma_B, sigma_W, bidir=False):
     # trainer = curr_exp.get_trainer(config=config, device=device, build_vocab=True)
     # curr_exp.execute(trainer=trainer)
 
-use_conv = False
+use_conv = 0
 
 if __name__ == '__main__':
     # if we just call this file, it will set up an interactive console
@@ -1328,15 +1360,11 @@ if __name__ == '__main__':
     elif int(dataset_number) == 3:
         dataset_prefix = 'snomed_all_fields_multi_label_no_des_'
 
-    conv_encoder = raw_input("Use conv_encoder or not? 0/1 \n")
-
+    conv_encoder = raw_input("Use conv_encoder or not? 0/1(Hierarchical)/2(Normal) \n")
+    assert (conv_encoder == '0' or conv_encoder == '1' or conv_encoder == '2')
+    
     global use_conv
-    if conv_encoder.strip() == '':
-        use_conv = False
-    elif conv_encoder == '1':
-        use_conv = True
-    else:
-        use_conv = False
+    use_conv = int(conv_encoder.strip())
 
     print("loading in dataset...will take 3-4 minutes...")
     dataset = Dataset(dataset_prefix=dataset_prefix)
