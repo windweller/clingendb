@@ -23,6 +23,7 @@ from torch.nn.utils.rnn import pad_packed_sequence as unpack
 from torchtext import data
 from util import MultiLabelField, ReversibleField, BCEWithLogitsLoss, MultiMarginHierarchyLoss
 
+
 def get_ci(vals, return_range=False):
     if len(set(vals)) == 1:
         return (vals[0], vals[0])
@@ -98,6 +99,7 @@ class LSTMBaseConfig(Config):
     def __init__(self, emb_dim=100, hidden_size=512, depth=1, label_size=42, bidir=False,
                  c=False, m=False, dropout=0.2, emb_update=True, clip_grad=5., seed=1234,
                  rand_unk=True, run_name="default", emb_corpus="gigaword", avg_run_times=1,
+                 conv_enc=False,
                  **kwargs):
         # run_name: the folder for the trainer
         super(LSTMBaseConfig, self).__init__(emb_dim=emb_dim,
@@ -115,6 +117,7 @@ class LSTMBaseConfig(Config):
                                              run_name=run_name,
                                              emb_corpus=emb_corpus,
                                              avg_run_times=avg_run_times,
+                                             conv_enc=conv_enc,
                                              **kwargs)
 
 
@@ -132,17 +135,82 @@ class LSTM_w_M_Config(LSTMBaseConfig):
         super(LSTM_w_M_Config, self).__init__(beta=beta, m=True, **kwargs)
 
 
+"""
+Hierarchical ConvNet
+"""
+
+
+class ConvNetEncoder(nn.Module):
+    def __init__(self, config):
+        super(ConvNetEncoder, self).__init__()
+
+        self.word_emb_dim = config['word_emb_dim']
+        self.enc_lstm_dim = config['enc_lstm_dim']
+
+        self.convnet1 = nn.Sequential(
+            nn.Conv1d(self.word_emb_dim, 2 * self.enc_lstm_dim, kernel_size=3,
+                      stride=1, padding=1),
+            nn.ReLU(inplace=True),
+        )
+        self.convnet2 = nn.Sequential(
+            nn.Conv1d(2 * self.enc_lstm_dim, 2 * self.enc_lstm_dim, kernel_size=3,
+                      stride=1, padding=1),
+            nn.ReLU(inplace=True),
+        )
+        self.convnet3 = nn.Sequential(
+            nn.Conv1d(2 * self.enc_lstm_dim, 2 * self.enc_lstm_dim, kernel_size=3,
+                      stride=1, padding=1),
+            nn.ReLU(inplace=True),
+        )
+        self.convnet4 = nn.Sequential(
+            nn.Conv1d(2 * self.enc_lstm_dim, 2 * self.enc_lstm_dim, kernel_size=3,
+                      stride=1, padding=1),
+            nn.ReLU(inplace=True),
+        )
+
+    def forward(self, sent_tuple):
+        # sent_len: [max_len, ..., min_len] (batch)
+        # sent: Variable(seqlen x batch x worddim)
+
+        sent, sent_len = sent_tuple
+
+        sent = sent.transpose(0, 1).transpose(1, 2).contiguous()
+        # batch, nhid, seqlen)
+
+        sent = self.convnet1(sent)
+        u1 = torch.max(sent, 2)[0]
+
+        sent = self.convnet2(sent)
+        u2 = torch.max(sent, 2)[0]
+
+        sent = self.convnet3(sent)
+        u3 = torch.max(sent, 2)[0]
+
+        sent = self.convnet4(sent)
+        u4 = torch.max(sent, 2)[0]
+
+        emb = torch.cat((u1, u2, u3, u4), 1)
+
+        return emb
+
+
 class Classifier(nn.Module):
     def __init__(self, vocab, config):
         super(Classifier, self).__init__()
         self.config = config
         self.drop = nn.Dropout(config.dropout)  # embedding dropout
-        self.encoder = nn.LSTM(
-            config.emb_dim,
-            config.hidden_size,
-            config.depth,
-            dropout=config.dropout,
-            bidirectional=config.bidir)  # ha...not even bidirectional
+        if config.conv_enc:
+            self.encoder = ConvNetEncoder({
+                'word_emb_dim': config.emb_dim,
+                'enc_lstm_dim': config.hidden_size if not config.bidir else config.hidden_size * 2
+            })
+        else:
+            self.encoder = nn.LSTM(
+                config.emb_dim,
+                config.hidden_size,
+                config.depth,
+                dropout=config.dropout,
+                bidirectional=config.bidir)  # ha...not even bidirectional
         d_out = config.hidden_size if not config.bidir else config.hidden_size * 2
         self.out = nn.Linear(d_out, config.label_size)  # include bias, to prevent bias assignment
         self.embed = nn.Embedding(len(vocab), config.emb_dim)
@@ -155,6 +223,10 @@ class Classifier(nn.Module):
 
     def get_vectors(self, input, lengths=None):
         embed_input = self.embed(input)
+
+        if self.config.conv_enc:
+            output = self.encoder((embed_input, lengths.view(-1).tolist()))
+            return output
 
         packed_emb = embed_input
         if lengths is not None:
@@ -476,7 +548,7 @@ class Trainer(object):
             output_vec = self.classifier.get_vectors(x, x_lengths)  # this is just logit (before calling sigmoid)
             final_rep = torch.max(output_vec, 0)[0].squeeze(0)
             logits = self.classifier.get_logits(output_vec)
-            loss = self.bce_logit_loss(logits, y) # this per-example
+            loss = self.bce_logit_loss(logits, y)  # this per-example
 
             # We create new Tensor Variable
             batched_x_list.append(final_rep.detach())
@@ -609,7 +681,6 @@ class AbstentionConfig(Config):
     def __init__(self, obj_loss=False, obj_accu=False,
                  inp_logit=False, inp_pred=False, inp_h=False, inp_conf=False, clip_grad=5., no_shrink=True,
                  dropout=0.):
-
         # some logic checks
         assert inp_logit + inp_pred + inp_h + inp_conf == 1, "only one input type"
         assert obj_loss + obj_accu == 1, "only one objective type"
@@ -800,14 +871,16 @@ class Abstention(object):
         all_preds, all_y_labels = [], []
         for ex in accepted_exs:
             pred, y = ex[1]
-            all_preds.append(pred);  all_y_labels.append(y)
+            all_preds.append(pred);
+            all_y_labels.append(y)
 
         if return_dropped:
             rej_preds = []
             rej_y_labels = []
             for ex in rejected_exs:
                 pred, y = ex[1]
-                rej_preds.append(pred); rej_y_labels.append(y)
+                rej_preds.append(pred);
+                rej_y_labels.append(y)
 
         preds = np.vstack(all_preds)
         ys = np.vstack(all_y_labels)
@@ -825,11 +898,13 @@ class Abstention(object):
     def get_ems_f1s(self, data_iter, model, config, device, conf_abstention=False, weighted_f1=True):
         # data_iter: test data
         # data_iter, reject_model, drop_portion, config, device
-        ems = []; f1s = []
+        ems = [];
+        f1s = []
         rej_portions = np.linspace(0., 0.9, num=9)
         for rej_p in rej_portions:
             em, f1 = self.drop(data_iter, model, rej_p, config, device, conf_abstention, weighted_f1=weighted_f1)
-            ems.append(em); f1s.append(f1)
+            ems.append(em);
+            f1s.append(f1)
         return ems, f1s
 
     def get_deeptag_data(self, run_order, device, rebuild_vocab=True):
@@ -903,6 +978,7 @@ class Experiment(object):
         self.set_random_seed(config)
 
         classifier = Classifier(self.dataset.vocab, config)
+        logging.info(classifier)
         trainer_folder = config.run_name if config.run_name != 'default' else self.config_to_string(config)
         trainer = Trainer(classifier, self.dataset, config,
                           save_path=pjoin(self.exp_save_path, trainer_folder),
@@ -1176,7 +1252,8 @@ class Experiment(object):
 # otherwise the sampling procedure will be different
 def run_baseline(device):
     random.setstate(orig_state)
-    lstm_base_c = LSTMBaseConfig(emb_corpus=emb_corpus, avg_run_times=avg_run_times)
+    lstm_base_c = LSTMBaseConfig(emb_corpus=emb_corpus, avg_run_times=avg_run_times,
+                                 conv_enc=use_conv)
     curr_exp.execute(lstm_base_c, device=device)
     # trainer = curr_exp.get_trainer(config=lstm_base_c, device=device, build_vocab=True)
     # curr_exp.execute(trainer=trainer)
@@ -1184,7 +1261,8 @@ def run_baseline(device):
 
 def run_bidir_baseline(device):
     random.setstate(orig_state)
-    lstm_bidir_c = LSTMBaseConfig(bidir=True, emb_corpus=emb_corpus, avg_run_times=avg_run_times)
+    lstm_bidir_c = LSTMBaseConfig(bidir=True, emb_corpus=emb_corpus, avg_run_times=avg_run_times,
+                                  conv_enc=use_conv)
     curr_exp.execute(lstm_bidir_c, device=device)
     # trainer = curr_exp.get_trainer(config=lstm_bidir_c, device=device, build_vocab=True)
     # curr_exp.execute(trainer=trainer)
@@ -1192,7 +1270,8 @@ def run_bidir_baseline(device):
 
 def run_m_penalty(device, beta=1e-3, bidir=False):
     random.setstate(orig_state)
-    config = LSTM_w_M_Config(beta, bidir=bidir, emb_corpus=emb_corpus, avg_run_times=avg_run_times)
+    config = LSTM_w_M_Config(beta, bidir=bidir, emb_corpus=emb_corpus, avg_run_times=avg_run_times,
+                             conv_enc=use_conv)
     curr_exp.execute(config, device=device)
     # trainer = curr_exp.get_trainer(config=config, device=device, build_vocab=True)
     # curr_exp.execute(trainer=trainer)
@@ -1200,11 +1279,13 @@ def run_m_penalty(device, beta=1e-3, bidir=False):
 
 def run_c_penalty(device, sigma_M, sigma_B, sigma_W, bidir=False):
     random.setstate(orig_state)
-    config = LSTM_w_C_Config(sigma_M, sigma_B, sigma_W, bidir=bidir, emb_corpus=emb_corpus, avg_run_times=avg_run_times)
+    config = LSTM_w_C_Config(sigma_M, sigma_B, sigma_W, bidir=bidir, emb_corpus=emb_corpus,
+                             avg_run_times=avg_run_times, conv_enc=use_conv)
     curr_exp.execute(config, device=device)
     # trainer = curr_exp.get_trainer(config=config, device=device, build_vocab=True)
     # curr_exp.execute(trainer=trainer)
 
+use_conv = False
 
 if __name__ == '__main__':
     # if we just call this file, it will set up an interactive console
@@ -1233,14 +1314,25 @@ if __name__ == '__main__':
                                "1=snomed_revised_fields_multi_label_no_des_ \n"
                                "2=snomed_all_fields_multi_label_no_des_): \n")
 
-    if int(dataset_number) == 1:
+    if dataset_number.strip() == "":
+        print("Default choice to 1")
+        dataset_prefix = 'snomed_multi_label_no_des_'
+    elif int(dataset_number) == 1:
         dataset_prefix = 'snomed_multi_label_no_des_'
     elif int(dataset_number) == 2:
         dataset_prefix = 'snomed_revised_fields_multi_label_no_des_'
     elif int(dataset_number) == 3:
         dataset_prefix = 'snomed_all_fields_multi_label_no_des_'
+
+    conv_encoder = raw_input("Use conv_encoder or not? 0/1 \n")
+
+    global use_conv
+    if conv_encoder.strip() == '':
+        use_conv = False
+    elif conv_encoder == '1':
+        use_conv = True
     else:
-        raise Exception("Not valid choice")
+        use_conv = False
 
     print("loading in dataset...will take 3-4 minutes...")
     dataset = Dataset(dataset_prefix=dataset_prefix)
