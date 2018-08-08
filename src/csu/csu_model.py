@@ -200,9 +200,10 @@ class Classifier(nn.Module):
         self.config = config
         self.drop = nn.Dropout(config.dropout)  # embedding dropout
         if config.conv_enc:
+            kernel_size = config.hidden_size / 8
             self.encoder = ConvNetEncoder({
                 'word_emb_dim': config.emb_dim,
-                'enc_lstm_dim': config.hidden_size if not config.bidir else config.hidden_size * 2
+                'enc_lstm_dim': kernel_size if not config.bidir else kernel_size * 2
             })
         else:
             self.encoder = nn.LSTM(
@@ -1310,9 +1311,9 @@ if __name__ == '__main__':
     avg_run_times = 1 if avg_run_times.strip() == '' else int(avg_run_times)
     avg_run_times = 5 if avg_run_times > 5 else avg_run_times
 
-    dataset_number = raw_input("enter dataset name prefix id (0=snomed_multi_label_no_des_ \n "
-                               "1=snomed_revised_fields_multi_label_no_des_ \n"
-                               "2=snomed_all_fields_multi_label_no_des_): \n")
+    dataset_number = raw_input("enter dataset name prefix id (1=snomed_multi_label_no_des_ \n "
+                               "2=snomed_revised_fields_multi_label_no_des_ \n"
+                               "3=snomed_all_fields_multi_label_no_des_): \n")
 
     if dataset_number.strip() == "":
         print("Default choice to 1")
