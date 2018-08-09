@@ -1155,11 +1155,11 @@ class Experiment(object):
                                  pp_em, pp_micro_tup[0], pp_micro_tup[1], pp_micro_tup[2],
                                  pp_macro_tup[0], pp_macro_tup[1], pp_macro_tup[2]])
 
-    def execute_trainer(self, trainer, append=True):
+    def execute_trainer(self, trainer, train_epochs=5, append=True):
         # used jointly with `get_trainer()`
         # the benefit of this function is it will record meta-result into a file...
         # use this to "evaluate" a model
-        trainer.train()
+        trainer.train(epochs=train_epochs)
         csu_em, csu_micro_tup, csu_macro_tup = trainer.test()
         trainer.logger.info("===== Evaluating on PP data =====")
         pp_em, pp_micro_tup, pp_macro_tup = trainer.evaluate(is_external=True)
@@ -1168,7 +1168,7 @@ class Experiment(object):
                                  pp_em, pp_micro_tup, pp_macro_tup],
                                 append=append, config=trainer.config)
 
-    def execute(self, config, device, append=True):
+    def execute(self, config, device, train_epochs=5, append=True):
         # combined get_trainer() and execute_trainer()
         # this is also "training"...not evaluating
         agg_csu_ems, agg_pp_ems = [], []
@@ -1186,7 +1186,7 @@ class Experiment(object):
                               save_path=pjoin(self.exp_save_path, trainer_folder),
                               device=device)
 
-            trainer.train(run_order)
+            trainer.train(run_order, train_epochs)
             csu_em, csu_micro_tup, csu_macro_tup = trainer.test()
 
             trainer.logger.info("===== Evaluating on PP data =====")
@@ -1358,7 +1358,7 @@ def run_baseline(device):
     random.setstate(orig_state)
     lstm_base_c = LSTMBaseConfig(emb_corpus=emb_corpus, avg_run_times=avg_run_times,
                                  conv_enc=use_conv)
-    curr_exp.execute(lstm_base_c, device=device)
+    curr_exp.execute(lstm_base_c, train_epochs=train_epochs, device=device)
     # trainer = curr_exp.get_trainer(config=lstm_base_c, device=device, build_vocab=True)
     # curr_exp.execute(trainer=trainer)
 
@@ -1367,7 +1367,7 @@ def run_bidir_baseline(device):
     random.setstate(orig_state)
     lstm_bidir_c = LSTMBaseConfig(bidir=True, emb_corpus=emb_corpus, avg_run_times=avg_run_times,
                                   conv_enc=use_conv)
-    curr_exp.execute(lstm_bidir_c, device=device)
+    curr_exp.execute(lstm_bidir_c, train_epochs=train_epochs, device=device)
     # trainer = curr_exp.get_trainer(config=lstm_bidir_c, device=device, build_vocab=True)
     # curr_exp.execute(trainer=trainer)
 
@@ -1376,7 +1376,7 @@ def run_m_penalty(device, beta=1e-3, bidir=False):
     random.setstate(orig_state)
     config = LSTM_w_M_Config(beta, bidir=bidir, emb_corpus=emb_corpus, avg_run_times=avg_run_times,
                              conv_enc=use_conv)
-    curr_exp.execute(config, device=device)
+    curr_exp.execute(config, train_epochs=train_epochs, device=device)
     # trainer = curr_exp.get_trainer(config=config, device=device, build_vocab=True)
     # curr_exp.execute(trainer=trainer)
 
@@ -1385,7 +1385,7 @@ def run_c_penalty(device, sigma_M, sigma_B, sigma_W, bidir=False):
     random.setstate(orig_state)
     config = LSTM_w_C_Config(sigma_M, sigma_B, sigma_W, bidir=bidir, emb_corpus=emb_corpus,
                              avg_run_times=avg_run_times, conv_enc=use_conv)
-    curr_exp.execute(config, device=device)
+    curr_exp.execute(config, train_epochs=train_epochs, device=device)
     # trainer = curr_exp.get_trainer(config=config, device=device, build_vocab=True)
     # curr_exp.execute(trainer=trainer)
 
@@ -1430,9 +1430,15 @@ if __name__ == '__main__':
 
     conv_encoder = raw_input("Use conv_encoder or not? 0/1(Hierarchical)/2(Normal)/3(TextCNN) \n")
     assert (conv_encoder == '0' or conv_encoder == '1' or conv_encoder == '2' or conv_encoder == '3')
-    
+
     global use_conv
     use_conv = int(conv_encoder.strip())
+
+    train_epochs = raw_input("Enter the number of training epochs: (default 5) \n")
+    if train_epochs.strip() == "":
+        train_epochs = 5
+    else:
+        train_epochs = int(train_epochs.strip())
 
     print("loading in dataset...will take 3-4 minutes...")
     dataset = Dataset(dataset_prefix=dataset_prefix)
