@@ -252,7 +252,7 @@ class CNN_Text_Encoder(nn.Module):
     def forward(self, x):
         # x = self.embed(x)  # (N, W, D)
 
-        x = x.transpose(0, 1).unsqueeze(1)
+        x = x[0].transpose(0, 1).unsqueeze(1)
         # x = x.unsqueeze(1)  # (N, Ci, W, D)
 
         x = [F.relu(conv(x)).squeeze(3) for conv in self.convs1]  # [(N, Co, W), ...]*len(Ks)
