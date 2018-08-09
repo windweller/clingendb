@@ -219,6 +219,7 @@ class NormalConvNetEncoder(nn.Module):
 
 """
 https://github.com/Shawn1993/cnn-text-classification-pytorch/blob/master/model.py
+352 stars
 """
 class CNN_Text_Encoder(nn.Module):
     def __init__(self, config):
@@ -296,10 +297,11 @@ class Classifier(nn.Module):
             d_out = config.hidden_size if not config.bidir else config.hidden_size * 2
         elif config.conv_enc == 3:
             kernel_num = config.hidden_size / 3
+            kernel_num = kernel_num if not config.bidir else kernel_num * 2
             self.encoder = CNN_Text_Encoder({
                 'word_emb_dim': config.emb_dim,
                 'kernel_sizes': [3,4,5],
-                'kernel_num': kernel_num if not config.bidir else kernel_num * 2
+                'kernel_num': kernel_num
             })
             d_out = len([3,4,5]) * kernel_num
         else:
