@@ -217,6 +217,61 @@ class NormalConvNetEncoder(nn.Module):
         emb = self.encode(sent)
         return emb
 
+"""
+https://github.com/Shawn1993/cnn-text-classification-pytorch/blob/master/model.py
+"""
+class CNN_Text_Encoder(nn.Module):
+    def __init__(self, config):
+        super(CNN_Text_Encoder, self).__init__()
+
+        self.word_emb_dim = config['word_emb_dim']
+
+        # V = args.embed_num
+        # D = args.embed_dim
+        # C = args.class_num
+        Ci = 1
+        Co = config['kernel_num']  # 100
+        Ks = config['kernel_sizes'] # '3,4,5'
+        # len(Ks)*Co
+
+        # self.convs1 = [nn.Conv2d(Ci, Co, (K, D)) for K in Ks]
+        self.convs1 = nn.ModuleList([nn.Conv2d(Ci, Co, (K, self.word_emb_dim)) for K in Ks])
+        '''
+        self.conv13 = nn.Conv2d(Ci, Co, (3, D))
+        self.conv14 = nn.Conv2d(Ci, Co, (4, D))
+        self.conv15 = nn.Conv2d(Ci, Co, (5, D))
+        '''
+        # self.dropout = nn.Dropout(args.dropout)
+        # self.fc1 = nn.Linear(len(Ks) * Co, C)
+
+    def conv_and_pool(self, x, conv):
+        x = F.relu(conv(x)).squeeze(3)  # (N, Co, W)
+        x = F.max_pool1d(x, x.size(2)).squeeze(2)
+        return x
+
+    def forward(self, x):
+        # x = self.embed(x)  # (N, W, D)
+
+        x = x.transpose(0, 1).unsqueeze(1)
+        # x = x.unsqueeze(1)  # (N, Ci, W, D)
+
+        x = [F.relu(conv(x)).squeeze(3) for conv in self.convs1]  # [(N, Co, W), ...]*len(Ks)
+
+        x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]  # [(N, Co), ...]*len(Ks)
+
+        x = torch.cat(x, 1)
+
+        '''
+        x1 = self.conv_and_pool(x,self.conv13) #(N,Co)
+        x2 = self.conv_and_pool(x,self.conv14) #(N,Co)
+        x3 = self.conv_and_pool(x,self.conv15) #(N,Co)
+        x = torch.cat((x1, x2, x3), 1) # (N,len(Ks)*Co)
+        '''
+        # x = self.dropout(x)  # (N, len(Ks)*Co)
+        # logit = self.fc1(x)  # (N, C)
+        return x
+
+
 
 class Classifier(nn.Module):
     def __init__(self, vocab, config):
@@ -230,6 +285,7 @@ class Classifier(nn.Module):
                 'word_emb_dim': config.emb_dim,
                 'enc_lstm_dim': kernel_size if not config.bidir else kernel_size * 2
             })
+            d_out = config.hidden_size if not config.bidir else config.hidden_size * 2
         elif config.conv_enc == 2:
             kernel_size = config.hidden_size
             print(kernel_size)
@@ -237,6 +293,15 @@ class Classifier(nn.Module):
                 'word_emb_dim': config.emb_dim,
                 'enc_lstm_dim': kernel_size if not config.bidir else kernel_size * 2
             })
+            d_out = config.hidden_size if not config.bidir else config.hidden_size * 2
+        elif config.conv_enc == 3:
+            kernel_num = config.hidden_size / 3
+            self.encoder = CNN_Text_Encoder({
+                'word_emb_dim': config.emb_dim,
+                'kernel_sizes': [3,4,5],
+                'kernel_num': kernel_num if not config.bidir else kernel_num * 2
+            })
+            d_out = len([3,4,5]) * kernel_num
         else:
             self.encoder = nn.LSTM(
                 config.emb_dim,
@@ -244,7 +309,8 @@ class Classifier(nn.Module):
                 config.depth,
                 dropout=config.dropout,
                 bidirectional=config.bidir)  # ha...not even bidirectional
-        d_out = config.hidden_size if not config.bidir else config.hidden_size * 2
+            d_out = config.hidden_size if not config.bidir else config.hidden_size * 2
+
         self.out = nn.Linear(d_out, config.label_size)  # include bias, to prevent bias assignment
         self.embed = nn.Embedding(len(vocab), config.emb_dim)
         self.embed.weight.data.copy_(vocab.vectors)
@@ -1360,8 +1426,8 @@ if __name__ == '__main__':
     elif int(dataset_number) == 3:
         dataset_prefix = 'snomed_all_fields_multi_label_no_des_'
 
-    conv_encoder = raw_input("Use conv_encoder or not? 0/1(Hierarchical)/2(Normal) \n")
-    assert (conv_encoder == '0' or conv_encoder == '1' or conv_encoder == '2')
+    conv_encoder = raw_input("Use conv_encoder or not? 0/1(Hierarchical)/2(Normal)/3(TextCNN) \n")
+    assert (conv_encoder == '0' or conv_encoder == '1' or conv_encoder == '2' or conv_encoder == '3')
     
     global use_conv
     use_conv = int(conv_encoder.strip())
