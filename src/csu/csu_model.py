@@ -140,7 +140,7 @@ class LSTM_w_M_Config(LSTMBaseConfig):
 
 class LSTM_w_Co_config(LSTMBaseConfig):
     def __init__(self, x_max=100, alpha=0.75, gamma=1e-3, use_csu=True,
-                 use_pp=False, glove=True,
+                 use_pp=False, glove=False, ppmi=False,
                  **kwargs):
         """
         :param x_max:  int (default: 100)
@@ -154,6 +154,7 @@ class LSTM_w_Co_config(LSTMBaseConfig):
         :param use_csu: use co-occurence frequency from CSU
         :param use_pp: use co-occurence frequency from PP
         :param glove: use GlOVE style loss, otherwise
+        :param ppmi: we want this to be false because if it's negative, then we want that too
         :param kwargs:
         """
         super(LSTM_w_Co_config, self).__init__(co=True,
@@ -163,7 +164,7 @@ class LSTM_w_Co_config(LSTMBaseConfig):
                                                use_csu=use_csu,
                                                use_pp=use_pp,
                                                glove=glove,
-                                               iter_num=1,
+                                               ppmi=ppmi,
                                                **kwargs)
 
 
@@ -576,7 +577,25 @@ def log_of_array_ignoring_zeros(M):
     log_M[mask] = np.log(log_M[mask])
     return log_M
 
-import itertools
+def observed_over_expected(df):
+    col_totals = df.sum(axis=0)
+    total = col_totals.sum()
+    row_totals = df.sum(axis=1)
+    expected = np.outer(row_totals, col_totals) / total
+    oe = df / expected
+    return oe
+
+
+def pmi(df, positive=True):
+    df = observed_over_expected(df)
+    # Silence distracting warnings about log(0):
+    with np.errstate(divide='ignore'):
+        df = np.log(df)
+    df[np.isnan(df)] = 0.0  # log(0) = 0
+    if positive:
+        df[df < 0] = 0.0
+    return df
+
 class CoOccurenceLoss(nn.Module):
     def __init__(self, config,
                  csu_path='./data/csu/label_co_matrix.npy',
@@ -586,38 +605,49 @@ class CoOccurenceLoss(nn.Module):
         self.co_mat_path = csu_path if config.use_csu else pp_path
         self.co_mat = np.load(self.co_mat_path)
         self.X = self.co_mat
+        self.glove = self.config.glove
 
         logging.info("using co_matrix {}".format(self.co_mat_path))
         self.n = config.hidden_size  # N-dim rep
         self.m = config.label_size
 
-        self.C = torch.empty(self.m, self.n)
-        self.C = Variable(self.C.uniform_(-0.5, 0.5)).cuda(device)
-        self.B = torch.empty(2, self.m)
-        self.B = Variable(self.B.uniform_(-0.5, 0.5)).cuda(device)
+        if self.glove:
+            self.C = torch.empty(self.m, self.n)
+            self.C = Variable(self.C.uniform_(-0.5, 0.5)).cuda(device)
+            self.B = torch.empty(2, self.m)
+            self.B = Variable(self.B.uniform_(-0.5, 0.5)).cuda(device)
 
-        self.indices = list(range(self.m))  # label_size
+            self.indices = list(range(self.m))  # label_size
 
-        # Precomputable GloVe values:
-        self.X_log = log_of_array_ignoring_zeros(self.X)
-        self.X_weights = (np.minimum(self.X, config.xmax) / config.xmax) ** config.alpha  # eq. (9)
+            # Precomputable GloVe values:
+            self.X_log = log_of_array_ignoring_zeros(self.X)
+            self.X_weights = (np.minimum(self.X, config.xmax) / config.xmax) ** config.alpha  # eq. (9)
 
-        # iterate on the upper triangular matrix, off-diagonal
-        self.iu1 = np.triu_indices(41, 1)  # 820 iterations
+            # iterate on the upper triangular matrix, off-diagonal
+            self.iu1 = np.triu_indices(41, 1)  # 820 iterations
+        else:
+            self.X = Variable(pmi(self.X, positive=self.config.ppmi), requires_grad=False).cuda(device)
+            self.mse = nn.MSELoss()
 
     def forward(self, softmax_weight):
         # this computes a straight-through pass of the GloVE objective
         # similar to "Auxiliary" training
         # return the loss
         # softmax_weight: [d, |Y|]
-        loss = 0.
-        for i, j in zip(self.iu1[0], self.iu1[1]):
-            if self.X[i, j] > 0.0:
-                # Cost is J' based on eq. (8) in the paper:
-                # (1, |Y|) dot (1, |Y|)
-                diff = softmax_weight[:, i].dot(self.C[j]) + self.B[0, i] + self.B[1, j] - self.X_log[i, j]
-                loss += self.X_weights[i, j] * diff   # f(X_ij) * (w_i w_j + b_i + b_j - log X_ij)
-        # this is the summation, not average
+        if self.glove:
+            loss = 0.
+            for i, j in zip(self.iu1[0], self.iu1[1]):
+                if self.X[i, j] > 0.0:
+                    # Cost is J' based on eq. (8) in the paper:
+                    # (1, |Y|) dot (1, |Y|)
+                    diff = softmax_weight[:, i].dot(self.C[j]) + self.B[0, i] + self.B[1, j] - self.X_log[i, j]
+                    loss += self.X_weights[i, j] * diff   # f(X_ij) * (w_i w_j + b_i + b_j - log X_ij)
+                    # this is the summation, not average
+        else:
+            # softmax_weight: (d, m)
+            # (m, d) (d, m)
+            a = torch.matmul(torch.transpose(softmax_weight, 1, 0), softmax_weight)
+            loss = self.mse(a, self.X)
         return loss
 
 # maybe we should evaluate inside this
