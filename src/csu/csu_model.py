@@ -602,13 +602,16 @@ class CoOccurenceLoss(nn.Module):
         self.X_log = log_of_array_ignoring_zeros(self.X)
         self.X_weights = (np.minimum(self.X, config.xmax) / config.xmax) ** config.alpha  # eq. (9)
 
+        # iterate on the upper triangular matrix, off-diagonal
+        self.iu1 = np.triu_indices(41, 1)  # 820 iterations
+
     def forward(self, softmax_weight):
         # this computes a straight-through pass of the GloVE objective
         # similar to "Auxiliary" training
         # return the loss
         # softmax_weight: [d, |Y|]
         loss = 0.
-        for i, j in itertools.product(self.indices, self.indices):
+        for i, j in zip(self.iu1[0], self.iu1[1]):
             if self.X[i, j] > 0.0:
                 # Cost is J' based on eq. (8) in the paper:
                 # (1, |Y|) dot (1, |Y|)
