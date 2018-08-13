@@ -97,11 +97,13 @@ class Config(dict):
 # each config is used to build a classifier and a trainer, so one for each
 class LSTMBaseConfig(Config):
     def __init__(self, emb_dim=100, hidden_size=512, depth=1, label_size=42, bidir=False,
-                 c=False, m=False, dropout=0.2, emb_update=True, clip_grad=5., seed=1234,
+                 c=False, m=False, co=False,
+                 dropout=0.2, emb_update=True, clip_grad=5., seed=1234,
                  rand_unk=True, run_name="default", emb_corpus="gigaword", avg_run_times=1,
                  conv_enc=False,
                  **kwargs):
         # run_name: the folder for the trainer
+        # c: cluster, m: meta, co: co-occurence constraint
         super(LSTMBaseConfig, self).__init__(emb_dim=emb_dim,
                                              hidden_size=hidden_size,
                                              depth=depth,
@@ -109,6 +111,7 @@ class LSTMBaseConfig(Config):
                                              bidir=bidir,
                                              c=c,
                                              m=m,
+                                             co=co,
                                              dropout=dropout,
                                              emb_update=emb_update,
                                              clip_grad=clip_grad,
@@ -133,6 +136,35 @@ class LSTM_w_C_Config(LSTMBaseConfig):
 class LSTM_w_M_Config(LSTMBaseConfig):
     def __init__(self, beta, **kwargs):
         super(LSTM_w_M_Config, self).__init__(beta=beta, m=True, **kwargs)
+
+
+class LSTM_w_Co_config(LSTMBaseConfig):
+    def __init__(self, x_max=100, alpha=0.75, gamma=1e-3, use_csu=True,
+                 use_pp=False, glove=True,
+                 **kwargs):
+        """
+        :param x_max:  int (default: 100)
+                Words with frequency greater than this are given weight 1.0.
+                Words with frequency under this are given weight (c/xmax)**alpha
+                where c is their count in mat (see the paper, eq. (9)).
+        :param alpha: float (default: 0.75)
+                Exponent in the weighting function (see the paper, eq. (9)).
+        :param gamma: float(default=1e-3)
+                The strength of this penalty
+        :param use_csu: use co-occurence frequency from CSU
+        :param use_pp: use co-occurence frequency from PP
+        :param glove: use GlOVE style loss, otherwise
+        :param kwargs:
+        """
+        super(LSTM_w_Co_config, self).__init__(co=True,
+                                               x_max=x_max,
+                                               alpha=alpha,
+                                               gamma=gamma,
+                                               use_csu=use_csu,
+                                               use_pp=use_pp,
+                                               glove=glove,
+                                               iter_num=1,
+                                               **kwargs)
 
 
 """
@@ -197,17 +229,20 @@ class ConvNetEncoder(nn.Module):
 """
 Normal ConvNet
 """
+
+
 class NormalConvNetEncoder(nn.Module):
     def __init__(self, config):
         super(NormalConvNetEncoder, self).__init__()
         self.word_emb_dim = config['word_emb_dim']
         self.enc_lstm_dim = config['enc_lstm_dim']
-        self.conv = nn.Conv2d(in_channels=1, out_channels=self.enc_lstm_dim, kernel_size=(3, self.word_emb_dim), stride=(1, self.word_emb_dim))
+        self.conv = nn.Conv2d(in_channels=1, out_channels=self.enc_lstm_dim, kernel_size=(3, self.word_emb_dim),
+                              stride=(1, self.word_emb_dim))
 
     def encode(self, inputs):
-        output = inputs.transpose(0, 1).unsqueeze(1) # [batch_size, in_kernel, seq_length, embed_dim]
-        output = F.relu(self.conv(output)) # conv -> [batch_size, out_kernel, seq_length, 1]
-        output = output.squeeze(3).max(2)[0] # max_pool -> [batch_size, out_kernel]
+        output = inputs.transpose(0, 1).unsqueeze(1)  # [batch_size, in_kernel, seq_length, embed_dim]
+        output = F.relu(self.conv(output))  # conv -> [batch_size, out_kernel, seq_length, 1]
+        output = output.squeeze(3).max(2)[0]  # max_pool -> [batch_size, out_kernel]
         return output
 
     def forward(self, sent_tuple):
@@ -217,10 +252,13 @@ class NormalConvNetEncoder(nn.Module):
         emb = self.encode(sent)
         return emb
 
+
 """
 https://github.com/Shawn1993/cnn-text-classification-pytorch/blob/master/model.py
 352 stars
 """
+
+
 class CNN_Text_Encoder(nn.Module):
     def __init__(self, config):
         super(CNN_Text_Encoder, self).__init__()
@@ -232,7 +270,7 @@ class CNN_Text_Encoder(nn.Module):
         # C = args.class_num
         Ci = 1
         Co = config['kernel_num']  # 100
-        Ks = config['kernel_sizes'] # '3,4,5'
+        Ks = config['kernel_sizes']  # '3,4,5'
         # len(Ks)*Co
 
         # self.convs1 = [nn.Conv2d(Ci, Co, (K, D)) for K in Ks]
@@ -273,7 +311,6 @@ class CNN_Text_Encoder(nn.Module):
         return x
 
 
-
 class Classifier(nn.Module):
     def __init__(self, vocab, config):
         super(Classifier, self).__init__()
@@ -300,10 +337,10 @@ class Classifier(nn.Module):
             kernel_num = kernel_num if not config.bidir else kernel_num * 2
             self.encoder = CNN_Text_Encoder({
                 'word_emb_dim': config.emb_dim,
-                'kernel_sizes': [3,4,5],
+                'kernel_sizes': [3, 4, 5],
                 'kernel_num': kernel_num
             })
-            d_out = len([3,4,5]) * kernel_num
+            d_out = len([3, 4, 5]) * kernel_num
         else:
             self.encoder = nn.LSTM(
                 config.emb_dim,
@@ -529,6 +566,56 @@ class MetaLoss(nn.Module):
         meta_loss = self.bce_loss(meta_probs, meta_y) * self.config.beta
         return meta_loss
 
+def log_of_array_ignoring_zeros(M):
+    """Returns an array containing the logs of the nonzero
+    elements of M. Zeros are left alone since log(0) isn't
+    defined.
+    """
+    log_M = M.copy()
+    mask = log_M > 0
+    log_M[mask] = np.log(log_M[mask])
+    return log_M
+
+import itertools
+class CoOccurenceLoss(nn.Module):
+    def __init__(self, config,
+                 csu_path='./data/csu/label_co_matrix.npy',
+                 pp_path='./data/csu/pp_combined_label_co_matrix.npy',
+                 device=-1):
+        super(CoOccurenceLoss, self).__init__()
+        self.co_mat_path = csu_path if config.use_csu else pp_path
+        self.co_mat = np.load(self.co_mat_path)
+        self.X = self.co_mat
+
+        logging.info("using co_matrix {}".format(self.co_mat_path))
+        self.n = config.hidden_size  # N-dim rep
+        self.m = config.label_size
+
+        self.C = torch.empty(self.m, self.n)
+        self.C = Variable(self.C.uniform_(-0.5, 0.5)).cuda(device)
+        self.B = torch.empty(2, self.m)
+        self.B = Variable(self.B.uniform_(-0.5, 0.5)).cuda(device)
+
+        self.indices = list(range(self.m))  # label_size
+
+        # Precomputable GloVe values:
+        self.X_log = log_of_array_ignoring_zeros(self.X)
+        self.X_weights = (np.minimum(self.X, config.xmax) / config.xmax) ** config.alpha  # eq. (9)
+
+    def forward(self, softmax_weight):
+        # this computes a straight-through pass of the GloVE objective
+        # similar to "Auxiliary" training
+        # return the loss
+        # softmax_weight: [d, |Y|]
+        loss = 0.
+        for i, j in itertools.product(self.indices, self.indices):
+            if self.X[i, j] > 0.0:
+                # Cost is J' based on eq. (8) in the paper:
+                # (1, |Y|) dot (1, |Y|)
+                diff = softmax_weight[:, i].dot(self.C[j]) + self.B[0, i] + self.B[1, j] - self.X_log[i, j]
+                loss += self.X_weights[i, j] * diff   # f(X_ij) * (w_i w_j + b_i + b_j - log X_ij)
+        # this is the summation, not average
+        return loss
 
 # maybe we should evaluate inside this
 # currently each Trainer is tied to one GPU, so we don't have to worry about
@@ -1388,6 +1475,7 @@ def run_c_penalty(device, sigma_M, sigma_B, sigma_W, bidir=False):
     curr_exp.execute(config, train_epochs=train_epochs, device=device)
     # trainer = curr_exp.get_trainer(config=config, device=device, build_vocab=True)
     # curr_exp.execute(trainer=trainer)
+
 
 use_conv = 0
 
