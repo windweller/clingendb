@@ -136,8 +136,10 @@ if __name__ == '__main__':
         snomed_code_to_prob[k] = prob
 
     with open("../../data/csu/all_snomed_fine_grained_dist.csv", 'wb') as f:
+        csv_writer = csv.writer(f)
         for k, v in labels_dist.items():
-            f.write(snomed_code_to_name[k] + "," + str(v) + "," + str(snomed_code_to_prob[k]) + "\n")
+            csv_writer.writerow([snomed_code_to_name[k], str(v), str(snomed_code_to_prob[k])])
+            # f.write(snomed_code_to_name[k] + "," + str(v) + "," + str(snomed_code_to_prob[k]) + "\n")
 
     label_list = [t[0] for t in labels_prob]
 
@@ -169,12 +171,12 @@ if __name__ == '__main__':
     write_to_tsv(valid, "../../data/csu/snomed_fine_grained_multi_label_no_des_valid.tsv", label_list)
     write_to_tsv(test, "../../data/csu/snomed_fine_grained_multi_label_no_des_test.tsv", label_list)
 
-    import json
-    with open('../../data/csu/snomed_fine_grained_labels.json', 'wb') as f:
-        json.dump(label_list, f)
-
-    names = [snomed_code_to_name[l] for l in label_list]
-    # index matches 0 to 41
-    with open('../../data/csu/snomed_fine_grained_labels_to_name.json', 'wb') as f:
-        json.dump(names, f)
+    # import json
+    # with open('../../data/csu/snomed_fine_grained_labels.json', 'wb') as f:
+    #     json.dump(label_list, f)
+    #
+    # names = [snomed_code_to_name[l] for l in label_list]
+    # # index matches 0 to 41
+    # with open('../../data/csu/snomed_fine_grained_labels_to_name.json', 'wb') as f:
+    #     json.dump(names, f)
 
