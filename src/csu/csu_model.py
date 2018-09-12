@@ -100,7 +100,7 @@ class LSTMBaseConfig(Config):
                  c=False, m=False, co=False,
                  dropout=0.2, emb_update=True, clip_grad=5., seed=1234,
                  rand_unk=True, run_name="default", emb_corpus="gigaword", avg_run_times=1,
-                 conv_enc=False,
+                 conv_enc=3,
                  **kwargs):
         # run_name: the folder for the trainer
         # c: cluster, m: meta, co: co-occurence constraint
@@ -611,6 +611,7 @@ class CoOccurenceLoss(nn.Module):
         self.n = config.hidden_size  # N-dim rep
         self.m = config.label_size
 
+        self.gamma = self.config.gamma
         if self.glove:
             self.C = torch.empty(self.m, self.n)
             self.C = Variable(self.C.uniform_(-0.5, 0.5)).cuda(device)
@@ -648,7 +649,7 @@ class CoOccurenceLoss(nn.Module):
             # (m, d) (d, m)
             a = torch.matmul(torch.transpose(softmax_weight, 1, 0), softmax_weight)
             loss = self.mse(a, self.X)
-        return loss
+        return loss * self.gamma
 
 # maybe we should evaluate inside this
 # currently each Trainer is tied to one GPU, so we don't have to worry about
