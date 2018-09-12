@@ -114,7 +114,7 @@ if __name__ == '__main__':
     #     snomed_code_to_name = {}
     #     for row in csv_reader:
     #         snomed_code_to_name[row[0]] = row[1]
-    with open("./data/csu/Files_for_parsing/combined_desc.txt", 'r') as f:
+    with open("../../data/csu/Files_for_parsing/combined_desc.txt", 'r') as f:
         csv_reader = csv.reader(f, delimiter='\t')
         snomed_code_to_name = {}
         for row in csv_reader:
