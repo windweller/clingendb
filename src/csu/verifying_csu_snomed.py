@@ -81,12 +81,18 @@ def collapse_label_x(list_labels):
 
         # clinical_finding_tag = False
         # found_diseas = False
-        for super_l in supertype_id_test(int(float(l))):
+
+        supertypes = set(supertype_id_test(int(float(l))))
+        matched_types = supertypes.intersection(subtypes_of_disease_code)
+
+        new_label_set = new_label_set.union(matched_types)
+
+        # for super_l in supertype_id_test(int(float(l))):
             # this is strictly searching for disease
             # super_l = str(super_l)
             # if super_l in snomed_label_set:
-            if super_l in subtypes_of_disease_code:  # both int-based
-                new_label_set.add(str(super_l))  # set, so ok for repeating add
+            # if super_l in subtypes_of_disease_code:  # both int-based
+            #     new_label_set.add(str(super_l))  # set, so ok for repeating add
                 # found_diseas = True
 
             # if super_l == clinical_finding:
@@ -140,7 +146,7 @@ if __name__ == '__main__':
 
     header = True
 
-    subtypes_of_disease_code = subtype_id_test(int('64572001'))
+    subtypes_of_disease_code = set(subtype_id_test(int('64572001')))
 
     examples = []
     labels_dist = []
