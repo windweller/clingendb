@@ -142,7 +142,7 @@ if __name__ == '__main__':
     examples = []
     labels_dist = []
     with open("../../data/csu/final_csu_file2", 'r') as f:
-        for line in f:
+        for num, line in enumerate(f):
             if header:
                 header = False
                 continue
@@ -155,6 +155,9 @@ if __name__ == '__main__':
             labels_dist.extend(seq_labels)
             # start from 0, and also join back to " " separation
             examples.append([text, " ".join(seq_labels)])
+
+            if num % 1000 == 0:
+                print(num)
 
     # import matplotlib.pyplot as plt
     #
@@ -176,7 +179,7 @@ if __name__ == '__main__':
         print "{}, {}, {}".format(k, labels_dist[k], prob)
         snomed_code_to_prob[k] = prob
 
-    with open("../../data/csu/all_snomed_fine_grained_dist.csv", 'wb') as f:
+    with open("../../data/csu/top_snomed_rematched_dist.csv", 'wb') as f:
         csv_writer = csv.writer(f)
         for k, v in labels_dist.items():
             csv_writer.writerow([snomed_code_to_name[k], str(v), str(snomed_code_to_prob[k])])
