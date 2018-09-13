@@ -103,7 +103,7 @@ def collapse_label_x(list_labels):
         # if clinical_finding_tag and not found_diseas:
         #     new_label_set.add(clinical_finding)
 
-    return list(new_label_set)
+    return [str(c) for c in new_label_set]
 
 
 def cleanhtml(raw_html):
