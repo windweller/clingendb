@@ -171,12 +171,12 @@ if __name__ == '__main__':
     write_to_tsv(valid, "../../data/csu/snomed_fine_grained_multi_label_no_des_valid.tsv", label_list)
     write_to_tsv(test, "../../data/csu/snomed_fine_grained_multi_label_no_des_test.tsv", label_list)
 
-    # import json
-    # with open('../../data/csu/snomed_fine_grained_labels.json', 'wb') as f:
-    #     json.dump(label_list, f)
-    #
-    # names = [snomed_code_to_name[l] for l in label_list]
-    # # index matches 0 to 41
-    # with open('../../data/csu/snomed_fine_grained_labels_to_name.json', 'wb') as f:
-    #     json.dump(names, f)
+    import json
+    with open('../../data/csu/snomed_fine_grained_labels.json', 'wb') as f:
+        json.dump(label_list, f)
+
+    names = [snomed_code_to_name[l] for l in label_list]
+    # index matches 0 to 41
+    with open('../../data/csu/snomed_fine_grained_labels_to_name.json', 'wb') as f:
+        json.dump(names, f)
 
