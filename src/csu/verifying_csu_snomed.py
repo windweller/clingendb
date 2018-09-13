@@ -79,22 +79,23 @@ def collapse_label_x(list_labels):
         if l not in snomed_code_to_name:
             continue
 
-        clinical_finding_tag = False
-        found_diseas = False
+        # clinical_finding_tag = False
+        # found_diseas = False
         for super_l in supertype_id_test(int(float(l))):
             # this is strictly searching for disease
-            super_l = str(super_l)
-            if super_l in snomed_label_set:
-                new_label_set.add(super_l)  # set, so ok for repeating add
-                found_diseas = True
+            # super_l = str(super_l)
+            # if super_l in snomed_label_set:
+            if super_l in subtypes_of_disease_code:  # both int-based
+                new_label_set.add(str(super_l))  # set, so ok for repeating add
+                # found_diseas = True
 
-            if super_l == clinical_finding:
-                clinical_finding_tag = True
+            # if super_l == clinical_finding:
+            #     clinical_finding_tag = True
                 # but we only add in the very end
 
         # if clinical finding tag is present, no disease is, we add it
-        if clinical_finding_tag and not found_diseas:
-            new_label_set.add(clinical_finding)
+        # if clinical_finding_tag and not found_diseas:
+        #     new_label_set.add(clinical_finding)
 
     return list(new_label_set)
 
@@ -139,6 +140,8 @@ if __name__ == '__main__':
 
     header = True
 
+    subtypes_of_disease_code = subtype_id_test(int('64572001'))
+
     examples = []
     labels_dist = []
     with open("../../data/csu/final_csu_file2", 'r') as f:
@@ -154,7 +157,7 @@ if __name__ == '__main__':
             seq_labels = collapse_label_x(labels)
             labels_dist.extend(seq_labels)
             # start from 0, and also join back to " " separation
-            examples.append([text, " ".join(seq_labels)])
+            examples.append([text, "|".join(seq_labels)])
 
             if num % 1000 == 0:
                 print(num)
@@ -179,13 +182,19 @@ if __name__ == '__main__':
         print "{}, {}, {}".format(k, labels_dist[k], prob)
         snomed_code_to_prob[k] = prob
 
-    with open("../../data/csu/top_snomed_rematched_dist.csv", 'wb') as f:
+    with open("../../data/csu/snomed_disease_codes_dist.csv", 'wb') as f:
         csv_writer = csv.writer(f)
         for k, v in labels_dist.items():
             csv_writer.writerow([snomed_code_to_name[k], str(v), str(snomed_code_to_prob[k])])
             # f.write(snomed_code_to_name[k] + "," + str(v) + "," + str(snomed_code_to_prob[k]) + "\n")
 
     label_list = [t[0] for t in labels_prob]
+
+    import csv
+    with open('../../data/csu/final_csu_file_disease', 'w') as f:
+        csv_writer = csv.writer(f)
+        for ex in examples:
+            csv_writer.writerow(ex)
 
     # process them into tsv format, but also collect frequency distribution
     # serial_numbers = range(len(examples))
