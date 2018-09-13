@@ -75,6 +75,10 @@ def collapse_label_x(list_labels):
     new_label_set = set()
     for l in flat_list_labels:
 
+        # both string match
+        if l not in snomed_code_to_name:
+            continue
+
         clinical_finding_tag = False
         found_diseas = False
         for super_l in supertype_id_test(int(float(l))):
@@ -124,6 +128,15 @@ with open('../../data/csu/snomed_labels_to_name.json', 'r') as f:
     snomed_names = json.load(f)
 
 if __name__ == '__main__':
+
+    import csv
+
+    with open("../../data/csu/Files_for_parsing/combined_desc.txt", 'r') as f:
+        csv_reader = csv.reader(f, delimiter='\t')
+        snomed_code_to_name = {}
+        for row in csv_reader:
+            snomed_code_to_name[row[4]] = row[7]
+
     header = True
 
     examples = []
@@ -147,19 +160,6 @@ if __name__ == '__main__':
     #
     # n, bins, patches = plt.hist(labels_dist, 50, normed=1, facecolor='green', alpha=0.75)
     # plt.show()
-
-    import csv
-
-    # with open("../../data/csu/Files_for_parsing/snomed_ICD_mapped.csv", 'r') as f:
-    #     csv_reader = csv.reader(f, delimiter=';')
-    #     snomed_code_to_name = {}
-    #     for row in csv_reader:
-    #         snomed_code_to_name[row[0]] = row[1]
-    with open("../../data/csu/Files_for_parsing/combined_desc.txt", 'r') as f:
-        csv_reader = csv.reader(f, delimiter='\t')
-        snomed_code_to_name = {}
-        for row in csv_reader:
-            snomed_code_to_name[row[4]] = row[7]
 
     labels_dist = count_freq(labels_dist)
 
