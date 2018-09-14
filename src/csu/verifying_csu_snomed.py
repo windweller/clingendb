@@ -13,6 +13,16 @@ We train without diagnosis, and with multilabel
 
 vet_tc = pd.read_csv("../../data/csu/Files_for_parsing/snomed_vet_tc.csv", sep='\t')
 
+snomed_map = pd.read_csv('./Files_for_parsing/snomed_ICD_mapped_no17.csv')
+
+
+def supertype_id(x):
+    temp_df1 = (vet_tc[['supertype']][vet_tc['subtype'] == x])
+    temp_df2 = pd.merge(temp_df1, snomed_map, on="supertype")
+    if ~temp_df2.empty:
+        result = temp_df2['supertype'].values
+        return (result)
+
 
 def subtype_id_test(x):
     temp_df1 = (vet_tc[['subtype']][vet_tc['supertype'] == x])
@@ -69,39 +79,34 @@ def get_most_freq_label(dic):
     return most_f_l
 
 
+# def collapse_label_x(list_labels):
+#     # collapse and filter at the same time
+#     flat_list_labels = list_labels.split('|')
+#     new_label_set = set()
+#     for l in flat_list_labels:
+#
+#         # both string match
+#         if l not in snomed_code_to_name:
+#             continue
+#
+#         # clinical_finding_tag = False
+#         # found_diseas = False
+#
+#         supertypes = set(supertype_id_test(int(float(l))))
+#         matched_types = supertypes.intersection(subtypes_of_disease_code)
+#
+#         new_label_set = new_label_set.union(matched_types)
+#
+#     return [str(c) for c in new_label_set]
+
 def collapse_label_x(list_labels):
-    # collapse and filter at the same time
     flat_list_labels = list_labels.split('|')
     new_label_set = set()
     for l in flat_list_labels:
-
-        # both string match
         if l not in snomed_code_to_name:
             continue
-
-        # clinical_finding_tag = False
-        # found_diseas = False
-
-        supertypes = set(supertype_id_test(int(float(l))))
-        matched_types = supertypes.intersection(subtypes_of_disease_code)
-
-        new_label_set = new_label_set.union(matched_types)
-
-        # for super_l in supertype_id_test(int(float(l))):
-            # this is strictly searching for disease
-            # super_l = str(super_l)
-            # if super_l in snomed_label_set:
-            # if super_l in subtypes_of_disease_code:  # both int-based
-            #     new_label_set.add(str(super_l))  # set, so ok for repeating add
-                # found_diseas = True
-
-            # if super_l == clinical_finding:
-            #     clinical_finding_tag = True
-                # but we only add in the very end
-
-        # if clinical finding tag is present, no disease is, we add it
-        # if clinical_finding_tag and not found_diseas:
-        #     new_label_set.add(clinical_finding)
+        found_super_types = supertype_id(int(l))
+        new_label_set = new_label_set.union(found_super_types)
 
     return [str(c) for c in new_label_set]
 
@@ -146,7 +151,7 @@ if __name__ == '__main__':
 
     header = True
 
-    subtypes_of_disease_code = set(subtype_id_test(int('64572001')))
+    # subtypes_of_disease_code = set(subtype_id_test(int('64572001')))
 
     examples = []
     labels_dist = []
@@ -185,7 +190,7 @@ if __name__ == '__main__':
 
     print "code, n, p"
     for k, prob in labels_prob:
-        print "{}, {}, {}".format(k, labels_dist[k], prob)
+        print "{}, {}, {}".format(snomed_code_to_name[k], labels_dist[k], prob)
         snomed_code_to_prob[k] = prob
 
     with open("../../data/csu/snomed_disease_codes_dist.csv", 'wb') as f:
@@ -197,44 +202,45 @@ if __name__ == '__main__':
     label_list = [t[0] for t in labels_prob]
 
     import csv
+
     with open('../../data/csu/final_csu_file_disease', 'w') as f:
         csv_writer = csv.writer(f)
         for ex in examples:
             csv_writer.writerow(ex)
 
-    # process them into tsv format, but also collect frequency distribution
-    # serial_numbers = range(len(examples))
-    # np.random.shuffle(serial_numbers)
-    #
-    # train_numbers = serial_numbers[:int(np.rint(len(examples) * split_proportions['train']))]
-    # valid_numbers = serial_numbers[
-    #                 int(np.rint(len(examples) * split_proportions['train'])): \
-    #                     int(np.rint(len(examples) * (split_proportions['train'] + split_proportions['valid'])))]
-    # test_numbers = serial_numbers[
-    #                int(np.rint(len(examples) * (split_proportions['train'] + split_proportions['valid']))):]
-    #
-    # print(
-    #     "train/valid/test number of examples: {}/{}/{}".format(len(train_numbers), len(valid_numbers),
-    #                                                            len(test_numbers)))
-    #
-    # train, valid, test = [], [], []
-    #
-    # for tn in train_numbers:
-    #     train.append(examples[tn])
-    # for tn in valid_numbers:
-    #     valid.append(examples[tn])
-    # for tn in test_numbers:
-    #     test.append(examples[tn])
-    #
-    # write_to_tsv(train, "../../data/csu/snomed_fine_grained_multi_label_no_des_train.tsv", label_list)
-    # write_to_tsv(valid, "../../data/csu/snomed_fine_grained_multi_label_no_des_valid.tsv", label_list)
-    # write_to_tsv(test, "../../data/csu/snomed_fine_grained_multi_label_no_des_test.tsv", label_list)
-    #
-    # import json
-    # with open('../../data/csu/snomed_fine_grained_labels.json', 'wb') as f:
-    #     json.dump(label_list, f)
-    #
-    # names = [snomed_code_to_name[l] for l in label_list]
-    # # index matches 0 to 41
-    # with open('../../data/csu/snomed_fine_grained_labels_to_name.json', 'wb') as f:
-    #     json.dump(names, f)
+            # process them into tsv format, but also collect frequency distribution
+            # serial_numbers = range(len(examples))
+            # np.random.shuffle(serial_numbers)
+            #
+            # train_numbers = serial_numbers[:int(np.rint(len(examples) * split_proportions['train']))]
+            # valid_numbers = serial_numbers[
+            #                 int(np.rint(len(examples) * split_proportions['train'])): \
+            #                     int(np.rint(len(examples) * (split_proportions['train'] + split_proportions['valid'])))]
+            # test_numbers = serial_numbers[
+            #                int(np.rint(len(examples) * (split_proportions['train'] + split_proportions['valid']))):]
+            #
+            # print(
+            #     "train/valid/test number of examples: {}/{}/{}".format(len(train_numbers), len(valid_numbers),
+            #                                                            len(test_numbers)))
+            #
+            # train, valid, test = [], [], []
+            #
+            # for tn in train_numbers:
+            #     train.append(examples[tn])
+            # for tn in valid_numbers:
+            #     valid.append(examples[tn])
+            # for tn in test_numbers:
+            #     test.append(examples[tn])
+            #
+            # write_to_tsv(train, "../../data/csu/snomed_fine_grained_multi_label_no_des_train.tsv", label_list)
+            # write_to_tsv(valid, "../../data/csu/snomed_fine_grained_multi_label_no_des_valid.tsv", label_list)
+            # write_to_tsv(test, "../../data/csu/snomed_fine_grained_multi_label_no_des_test.tsv", label_list)
+            #
+            # import json
+            # with open('../../data/csu/snomed_fine_grained_labels.json', 'wb') as f:
+            #     json.dump(label_list, f)
+            #
+            # names = [snomed_code_to_name[l] for l in label_list]
+            # # index matches 0 to 41
+            # with open('../../data/csu/snomed_fine_grained_labels_to_name.json', 'wb') as f:
+            #     json.dump(names, f)
