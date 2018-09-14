@@ -15,6 +15,7 @@ vet_tc = pd.read_csv("../../data/csu/Files_for_parsing/snomed_vet_tc.csv", sep='
 
 snomed_map = pd.read_csv('../../data/csu/Files_for_parsing/snomed_ICD_mapped_no17.csv')
 
+snomed_map.rename(columns = {'SNOMED_top_code':'supertype'}, inplace=True)
 
 def supertype_id(x):
     temp_df1 = (vet_tc[['supertype']][vet_tc['subtype'] == x])
