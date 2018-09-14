@@ -13,7 +13,7 @@ We train without diagnosis, and with multilabel
 
 vet_tc = pd.read_csv("../../data/csu/Files_for_parsing/snomed_vet_tc.csv", sep='\t')
 
-snomed_map = pd.read_csv('./Files_for_parsing/snomed_ICD_mapped_no17.csv')
+snomed_map = pd.read_csv('../../data/csu/Files_for_parsing/snomed_ICD_mapped_no17.csv')
 
 
 def supertype_id(x):
