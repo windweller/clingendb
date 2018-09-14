@@ -580,9 +580,10 @@ class MaxPoolingCDBiLSTM(BaseLSTM):
         # label_id = torch.max(clf_output, 0)[1]
 
         # compute A score
-        clf_output[label_idx].backward()
+        y = clf_output[label_idx]
+        grad = torch.autograd.grad(y, output, retain_graph=True)[0]
 
-        scores_A = output.grad.data.squeeze() * torch.from_numpy(rel_A).float()
+        scores_A = grad.data.squeeze() * torch.from_numpy(rel_A).float()
 
         # (sent_len, num_label)
         return scores_A.sum(dim=1), clf_output
