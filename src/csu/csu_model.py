@@ -585,7 +585,7 @@ class MaxPoolingCDBiLSTM(BaseLSTM):
         scores_A = output_vec.grad.data.squeeze() * torch.from_numpy(rel_A).float()
 
         # (sent_len, num_label)
-        return scores_A.sum(dim=1)
+        return scores_A.sum(dim=1), clf_output
 
     def extract_keywords(self, sentence, sentence_len, dataset, score_values, label_keyword_dict, label_size=42, threshold=0.2):
         # sentence: x
@@ -650,7 +650,7 @@ class MaxPoolingCDBiLSTM(BaseLSTM):
         # not considering interactions between words; merely collecting word contribution
 
         # word_vecs = self.model.embed(batch.text)[:, 0].data
-        word_vecs = self.model.embed(sentence)
+        word_vecs = self.model.embed(sentence).squeeze().data.numpy()
 
         T = word_vecs.shape[0]
 
