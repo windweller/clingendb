@@ -11,6 +11,7 @@ import math
 from sklearn import metrics
 from scipy import stats
 from os.path import join as pjoin
+from scipy.special import expit as sigmoid
 
 from collections import defaultdict
 from itertools import combinations, izip
@@ -391,6 +392,362 @@ class Classifier(nn.Module):
         return self.out.weight
 
 
+"""
+Interpretation module
+"""
+
+
+def propagate_three(a, b, c, activation):
+    a_contrib = 0.5 * (activation(a + c) - activation(c) +
+                       activation(a + b + c) - activation(b + c))
+    b_contrib = 0.5 * (activation(b + c) - activation(c) +
+                       activation(a + b + c) - activation(a + c))
+    return a_contrib, b_contrib, activation(c)
+
+
+# propagate tanh nonlinearity
+def propagate_tanh_two(a, b):
+    return 0.5 * (np.tanh(a) + (np.tanh(a + b) - np.tanh(b))), 0.5 * (np.tanh(b) + (np.tanh(a + b) - np.tanh(a)))
+
+
+def propagate_max_two(a, b, d=0):
+    # need to return a, b with the same shape...
+    indices = np.argmax(a + b, axis=d)
+    a_mask = np.zeros_like(a)
+    a_mask[indices, np.arange(a.shape[1])] = 1
+    a = a * a_mask
+
+    b_mask = np.zeros_like(b)
+    b_mask[indices, np.arange(b.shape[1])] = 1
+    b = b * b_mask
+
+    return a, b
+
+
+class BaseLSTM(object):
+    def __init__(self, model, glove_path, bilstm=False):
+        self.model = model
+        weights = model.encoder.state_dict()
+
+        self.model.encoder.set_glove_path(glove_path)
+
+        self.optimizer = torch.optim.SGD(self.model.parameters(), 0.1)
+
+        self.hidden_dim = model.encoder.enc_lstm_dim
+
+        self.W_ii, self.W_if, self.W_ig, self.W_io = np.split(
+            weights['weight_ih_l0'], 4, 0)
+        self.W_hi, self.W_hf, self.W_hg, self.W_ho = np.split(
+            weights['weight_hh_l0'], 4, 0)
+        self.b_i, self.b_f, self.b_g, self.b_o = np.split(
+            weights['bias_ih_l0'].numpy() + weights['bias_hh_l0'].numpy(),
+            4)
+
+        if bilstm:
+            self.rev_W_ii, self.rev_W_if, self.rev_W_ig, self.rev_W_io = np.split(
+                weights['weight_ih_l0_reverse'], 4, 0)
+            self.rev_W_hi, self.rev_W_hf, self.rev_W_hg, self.rev_W_ho = np.split(
+                weights['weight_hh_l0_reverse'], 4, 0)
+            self.rev_b_i, self.rev_b_f, self.rev_b_g, self.rev_b_o = np.split(
+                weights['bias_ih_l0_reverse'].numpy(
+                ) + weights['bias_hh_l0_reverse'].numpy(),
+                4)
+
+        self.word_emb_dim = 100
+        self.glove_path = glove_path
+
+        self.classifiers = [
+            (self.model.out.weight.data.numpy(),
+             self.model.out.bias.data.numpy())
+        ]
+
+    def zero_grad(self):
+        self.optimizer.zero_grad()
+
+    def classify(self, final_res):
+        # note that u, v could be positional!! don't mix the two
+        for c in self.classifiers:
+            w, b = c
+            final_res = np.dot(w, final_res) + b
+        return final_res
+
+
+class MaxPoolingCDBiLSTM(BaseLSTM):
+    def cell(self, prev_h, prev_c, x_i):
+        # x_i = word_vecs[i]
+        rel_i = np.dot(self.W_hi, prev_h)
+        rel_g = np.dot(self.W_hg, prev_h)
+        rel_f = np.dot(self.W_hf, prev_h)
+        rel_o = np.dot(self.W_ho, prev_h)
+
+        rel_i = sigmoid(rel_i + np.dot(self.W_ii, x_i) + self.b_i)
+        rel_g = np.tanh(rel_g + np.dot(self.W_ig, x_i) + self.b_g)
+        rel_f = sigmoid(rel_f + np.dot(self.W_if, x_i) + self.b_f)
+        rel_o = sigmoid(rel_o + np.dot(self.W_io, x_i) + self.b_o)
+
+        c_t = rel_f * prev_c + rel_i * rel_g
+        h_t = rel_o * np.tanh(c_t)
+
+        return h_t, c_t
+
+    def rev_cell(self, prev_h, prev_c, x_i):
+        # x_i = word_vecs[i]
+        rel_i = np.dot(self.rev_W_hi, prev_h)
+        rel_g = np.dot(self.rev_W_hg, prev_h)
+        rel_f = np.dot(self.rev_W_hf, prev_h)
+        rel_o = np.dot(self.rev_W_ho, prev_h)
+
+        rel_i = sigmoid(rel_i + np.dot(self.rev_W_ii, x_i) + self.rev_b_i)
+        rel_g = np.tanh(rel_g + np.dot(self.rev_W_ig, x_i) + self.rev_b_g)
+        rel_f = sigmoid(rel_f + np.dot(self.rev_W_if, x_i) + self.rev_b_f)
+        rel_o = sigmoid(rel_o + np.dot(self.rev_W_io, x_i) + self.rev_b_o)
+
+        c_t = rel_f * prev_c + rel_i * rel_g
+        h_t = rel_o * np.tanh(c_t)
+
+        return h_t, c_t
+
+    def run_bi_lstm(self, sent):
+        # this is used as validation
+        # sent: [legnth, dim=100]
+        word_vecs = sent
+
+        T = word_vecs.shape[0]
+
+        hidden_states = np.zeros((T, self.hidden_dim))
+        rev_hidden_states = np.zeros((T, self.hidden_dim))
+
+        cell_states = np.zeros((T, self.hidden_dim))
+        rev_cell_states = np.zeros((T, self.hidden_dim))
+
+        for i in range(T):
+            if i > 0:
+                # this is just the prev hidden state
+                prev_h = hidden_states[i - 1]
+                prev_c = cell_states[i - 1]
+            else:
+                prev_h = np.zeros(self.hidden_dim)
+                prev_c = np.zeros(self.hidden_dim)
+
+            new_h, new_c = self.cell(prev_h, prev_c, word_vecs[i])
+
+            hidden_states[i] = new_h
+            cell_states[i] = new_c
+
+        for i in reversed(range(T)):
+            # 20, 19, 18, 17, ...
+            if i < T - 1:
+                # this is just the prev hidden state
+                prev_h = rev_hidden_states[i + 1]
+                prev_c = rev_cell_states[i + 1]
+            else:
+                prev_h = np.zeros(self.hidden_dim)
+                prev_c = np.zeros(self.hidden_dim)
+
+            new_h, new_c = self.rev_cell(prev_h, prev_c, word_vecs[i])
+
+            rev_hidden_states[i] = new_h
+            rev_cell_states[i] = new_c
+
+        # stack second dimension
+        return np.hstack([hidden_states, rev_hidden_states]), np.hstack([cell_states, rev_cell_states])
+
+    def get_word_level_scores(self, sentence, sentence_len, label_idx):
+        """
+        :param sentence: word embeddings of [T, d]
+        :return:
+        """
+        # texts = gen_tiles(text_orig, method='cd', sweep_dim=1).transpose()
+        # starts, stops = tiles_to_cd(texts)
+        # [0, 1, 2,...], [0, 1, 2,...]
+
+        self.zero_grad()
+
+        # contextual decomposition
+        rel_A, irrel_A = self.cd_encode(sentence)  # already masked
+
+        # Gradient part!
+        # now we actually fire up the encoder, and get gradients w.r.t. hidden states
+        # run the actual model to compute gradients
+        sentence_emb = self.model.embed(sentence)
+        lengths = sentence_len.view(-1).tolist()
+        packed_emb = nn.utils.rnn.pack_padded_sequence(sentence_emb, lengths)
+        output, hidden = self.model.encoder(packed_emb)
+        output_vec = unpack(output)[0]
+        output = torch.max(output_vec, 0)[0].squeeze(0)
+        clf_output = self.model.out(output)
+        # output_vec is the hidden states we want!! (T, hid_state_dim)
+
+        # TODO: fix this part
+        # y = clf_output[label_idx]
+        # label_id = torch.max(clf_output, 0)[1]
+
+        # compute A score
+        clf_output[label_idx].backward()
+
+        scores_A = output_vec.grad.data.squeeze() * torch.from_numpy(rel_A).float()
+
+        # (sent_len, num_label)
+        return scores_A.sum(dim=1)
+
+    def extract_keywords(self, sentence, sentence_len, dataset, score_values, label_keyword_dict, label_size=42, threshold=0.2):
+        # sentence: x
+        # sentence_len: x_len
+
+        self.zero_grad()
+
+        # contextual decomposition
+        rel_A, irrel_A = self.cd_encode(sentence)  # already masked
+
+        # Gradient part!
+        # now we actually fire up the encoder, and get gradients w.r.t. hidden states
+        # run the actual model to compute gradients
+        sentence_emb = self.model.embed(sentence)
+        lengths = sentence_len.view(-1).tolist()
+        packed_emb = nn.utils.rnn.pack_padded_sequence(sentence_emb, lengths)
+        output, hidden = self.model.encoder(packed_emb)
+        output_vec = unpack(output)[0]
+        output = torch.max(output_vec, 0)[0].squeeze(0)
+        clf_output = self.model.out(output)
+        # output_vec is the hidden states we want!! (T, hid_state_dim)
+
+        # TODO: fix this part
+        # y = clf_output[label_idx]
+        # label_id = torch.max(clf_output, 0)[1]
+
+        text = [dataset.TEXT.vocab.itos[idx] for idx in sentence.data]
+
+        # compute A score
+        for label_idx in range(label_size):
+            self.zero_grad()
+            clf_output[label_idx].backward(retain_graph=True)
+
+            scores_A = output_vec.grad.data.squeeze() * torch.from_numpy(rel_A).float()
+            scores_A = scores_A.sum(dim=1).data.squeeze().numpy().tolist()
+
+            assert len(scores_A) == len(text)
+            score_values.extend(scores_A)
+
+            for g, t in zip(scores_A, text):
+                if g > threshold:
+                    label_keyword_dict[label_idx].append(t)
+
+        # we don't return anything :) 
+        return
+
+    def cd_encode(self, sentences):
+        rel_h, irrel_h, _ = self.flat_cd_text(sentences)
+        rev_rel_h, rev_irrel_h, _ = self.flat_cd_text(sentences, reverse=True)
+        rel = np.hstack([rel_h, rev_rel_h])  # T, 2*d
+        irrel = np.hstack([irrel_h, rev_irrel_h])  # T, 2*d
+        # again, hidden-states = rel + irrel
+
+        # we mask both
+        rel_masked, irrel_masked = propagate_max_two(rel, irrel)
+
+        # (2*d), actual sentence representation
+        return rel_masked, irrel_masked
+
+    def flat_cd_text(self, sentence, reverse=False):
+        # collects relevance for word 0 to sent_length
+        # not considering interactions between words; merely collecting word contribution
+
+        # word_vecs = self.model.embed(batch.text)[:, 0].data
+        word_vecs = self.model.embed(sentence)
+
+        T = word_vecs.shape[0]
+
+        # so prev_h is always irrelevant
+        # there's no rel_h because we only look at each time step individually
+
+        # relevant cell states, irrelevant cell states
+        relevant = np.zeros((T, self.hidden_dim))
+        irrelevant = np.zeros((T, self.hidden_dim))
+
+        relevant_h = np.zeros((T, self.hidden_dim))
+        # keep track of the entire hidden state
+        irrelevant_h = np.zeros((T, self.hidden_dim))
+
+        hidden_states = np.zeros((T, self.hidden_dim))
+        cell_states = np.zeros((T, self.hidden_dim))
+
+        if not reverse:
+            W_ii, W_if, W_ig, W_io = self.W_ii, self.W_if, self.W_ig, self.W_io
+            W_hi, W_hf, W_hg, W_ho = self.W_hi, self.W_hf, self.W_hg, self.W_ho
+            b_i, b_f, b_g, b_o = self.b_i, self.b_f, self.b_g, self.b_o
+        else:
+            W_ii, W_if, W_ig, W_io = self.rev_W_ii, self.rev_W_if, self.rev_W_ig, self.rev_W_io
+            W_hi, W_hf, W_hg, W_ho = self.rev_W_hi, self.rev_W_hf, self.rev_W_hg, self.rev_W_ho
+            b_i, b_f, b_g, b_o = self.rev_b_i, self.rev_b_f, self.rev_b_g, self.rev_b_o
+
+        # strategy: keep using prev_h as irrel_h
+        # every time, make sure h = irrel + rel, then prev_h = h
+
+        indices = range(T) if not reverse else reversed(range(T))
+        for i in indices:
+            first_cond = i > 0 if not reverse else i < T - 1
+            if first_cond:
+                ret_idx = i - 1 if not reverse else i + 1
+                prev_c = cell_states[ret_idx]
+                prev_h = hidden_states[ret_idx]
+            else:
+                prev_c = np.zeros(self.hidden_dim)
+                prev_h = np.zeros(self.hidden_dim)
+
+            irrel_i = np.dot(W_hi, prev_h)
+            irrel_g = np.dot(W_hg, prev_h)
+            irrel_f = np.dot(W_hf, prev_h)
+            irrel_o = np.dot(W_ho, prev_h)
+
+            rel_i = np.dot(W_ii, word_vecs[i])
+            rel_g = np.dot(W_ig, word_vecs[i])
+            rel_f = np.dot(W_if, word_vecs[i])
+            rel_o = np.dot(W_io, word_vecs[i])
+
+            # this remains unchanged
+            rel_contrib_i, irrel_contrib_i, bias_contrib_i = propagate_three(
+                rel_i, irrel_i, b_i, sigmoid)
+            rel_contrib_g, irrel_contrib_g, bias_contrib_g = propagate_three(
+                rel_g, irrel_g, b_g, np.tanh)
+
+            relevant[i] = rel_contrib_i * (rel_contrib_g + bias_contrib_g) + \
+                          bias_contrib_i * rel_contrib_g
+            irrelevant[i] = irrel_contrib_i * (rel_contrib_g + irrel_contrib_g + bias_contrib_g) + \
+                            (rel_contrib_i + bias_contrib_i) * irrel_contrib_g
+
+            relevant[i] += bias_contrib_i * bias_contrib_g
+            # if i >= start and i < stop:
+            #     relevant[i] += bias_contrib_i * bias_contrib_g
+            # else:
+            #     irrelevant[i] += bias_contrib_i * bias_contrib_g
+
+            cond = i > 0 if not reverse else i < T - 1
+            if cond:
+                rel_contrib_f, irrel_contrib_f, bias_contrib_f = propagate_three(
+                    rel_f, irrel_f, b_f, sigmoid)
+
+                # not sure if this is completely correct
+                irrelevant[i] += (rel_contrib_f +
+                                  irrel_contrib_f + bias_contrib_f) * prev_c
+
+            # recompute o-gate
+            o = sigmoid(rel_o + irrel_o + b_o)
+            rel_contrib_o, irrel_contrib_o, bias_contrib_o = propagate_three(
+                rel_o, irrel_o, b_o, sigmoid)
+            # from current cell state
+            new_rel_h, new_irrel_h = propagate_tanh_two(
+                relevant[i], irrelevant[i])
+            # relevant_h[i] = new_rel_h * (rel_contrib_o + bias_contrib_o)
+            # irrelevant_h[i] = new_rel_h * (irrel_contrib_o) + new_irrel_h * (rel_contrib_o + irrel_contrib_o + bias_contrib_o)
+            relevant_h[i] = o * new_rel_h
+            irrelevant_h[i] = o * new_irrel_h
+
+            hidden_states[i] = relevant_h[i] + irrelevant_h[i]
+            cell_states[i] = relevant[i] + irrelevant[i]
+
+        return relevant_h, irrelevant_h, hidden_states
+
+
 # this dataset can also take in 5-class classification
 class Dataset(object):
     def __init__(self, path='./data/csu/',
@@ -567,6 +924,7 @@ class MetaLoss(nn.Module):
         meta_loss = self.bce_loss(meta_probs, meta_y) * self.config.beta
         return meta_loss
 
+
 def log_of_array_ignoring_zeros(M):
     """Returns an array containing the logs of the nonzero
     elements of M. Zeros are left alone since log(0) isn't
@@ -576,6 +934,7 @@ def log_of_array_ignoring_zeros(M):
     mask = log_M > 0
     log_M[mask] = np.log(log_M[mask])
     return log_M
+
 
 def observed_over_expected(df):
     col_totals = df.sum(axis=0)
@@ -595,6 +954,7 @@ def pmi(df, positive=True):
     if positive:
         df[df < 0] = 0.0
     return df
+
 
 class CoOccurenceLoss(nn.Module):
     def __init__(self, config,
@@ -642,7 +1002,7 @@ class CoOccurenceLoss(nn.Module):
                     # Cost is J' based on eq. (8) in the paper:
                     # (1, |Y|) dot (1, |Y|)
                     diff = softmax_weight[:, i].dot(self.C[j]) + self.B[0, i] + self.B[1, j] - self.X_log[i, j]
-                    loss += self.X_weights[i, j] * diff   # f(X_ij) * (w_i w_j + b_i + b_j - log X_ij)
+                    loss += self.X_weights[i, j] * diff  # f(X_ij) * (w_i w_j + b_i + b_j - log X_ij)
                     # this is the summation, not average
         else:
             # softmax_weight: (d, m)
@@ -650,6 +1010,7 @@ class CoOccurenceLoss(nn.Module):
             a = torch.matmul(torch.transpose(softmax_weight, 1, 0), softmax_weight)
             loss = self.mse(a, self.X)
         return loss * self.gamma
+
 
 # maybe we should evaluate inside this
 # currently each Trainer is tied to one GPU, so we don't have to worry about
