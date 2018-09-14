@@ -431,7 +431,7 @@ class BaseLSTM(object):
 
         self.optimizer = torch.optim.SGD(self.model.parameters(), 0.1)
 
-        self.hidden_dim = model.encoder.enc_lstm_dim
+        self.hidden_dim = model.config.hidden_size
 
         self.W_ii, self.W_if, self.W_ig, self.W_io = np.split(
             weights['weight_ih_l0'], 4, 0)
