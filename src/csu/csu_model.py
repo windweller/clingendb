@@ -601,11 +601,12 @@ class MaxPoolingCDBiLSTM(BaseLSTM):
         # run the actual model to compute gradients
         sentence_emb = self.model.embed(sentence)
         lengths = sentence_len.view(-1).tolist()
-        packed_emb = nn.utils.rnn.pack_padded_sequence(sentence_emb, lengths)
-        output, hidden = self.model.encoder(packed_emb)
-        output_vec = unpack(output)[0]
-        output = torch.max(output_vec, 0)[0].squeeze(0)
-        clf_output = self.model.out(output)
+        # packed_emb = nn.utils.rnn.pack_padded_sequence(sentence_emb, lengths)
+        # output, hidden = self.model.encoder(packed_emb)
+        output, hidden = self.model.encoder(sentence_emb)
+        # output_vec = unpack(output)[0]
+        sent_output = torch.max(output, 0)[0].squeeze(0)
+        clf_output = self.model.out(sent_output)
         # output_vec is the hidden states we want!! (T, hid_state_dim)
 
         # TODO: fix this part
@@ -617,9 +618,11 @@ class MaxPoolingCDBiLSTM(BaseLSTM):
         # compute A score
         for label_idx in range(label_size):
             self.zero_grad()
+
+
             clf_output[label_idx].backward(retain_graph=True)
 
-            scores_A = output_vec.grad.data.squeeze() * torch.from_numpy(rel_A).float()
+            scores_A = output.grad.data.squeeze() * torch.from_numpy(rel_A).float()
             scores_A = scores_A.sum(dim=1).data.squeeze().numpy().tolist()
 
             assert len(scores_A) == len(text)
