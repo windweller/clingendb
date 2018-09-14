@@ -425,11 +425,9 @@ def propagate_max_two(a, b, d=0):
 
 
 class BaseLSTM(object):
-    def __init__(self, model, glove_path, bilstm=False):
+    def __init__(self, model, bilstm=False):
         self.model = model
         weights = model.encoder.state_dict()
-
-        self.model.encoder.set_glove_path(glove_path)
 
         self.optimizer = torch.optim.SGD(self.model.parameters(), 0.1)
 
@@ -454,7 +452,6 @@ class BaseLSTM(object):
                 4)
 
         self.word_emb_dim = 100
-        self.glove_path = glove_path
 
         self.classifiers = [
             (self.model.out.weight.data.numpy(),
@@ -632,7 +629,7 @@ class MaxPoolingCDBiLSTM(BaseLSTM):
                 if g > threshold:
                     label_keyword_dict[label_idx].append(t)
 
-        # we don't return anything :) 
+        # we don't return anything :)
         return
 
     def cd_encode(self, sentences):
