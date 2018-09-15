@@ -1032,6 +1032,9 @@ class Trainer(object):
         else:
             self.classifier = classifier.cuda(device)
 
+        # replace old cached config with new config
+        self.classifier.config = config
+
         self.dataset = dataset
         self.device = device
         self.config = config
