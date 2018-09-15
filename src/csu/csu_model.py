@@ -1236,7 +1236,20 @@ class Trainer(object):
         accu = np.array([metrics.accuracy_score(ys[:, i], preds[:, i]) for i in range(self.config.label_size)],
                         dtype='float32')
         p, r, f1, s = metrics.precision_recall_fscore_support(ys, preds, average=None)
-        roc_auc = metrics.roc_auc_score(ys, preds, average=None)
+
+        # because some labels are NOT present in the test set, we need to message this function
+        # filter out labels that have no examples
+
+        # this code works :)
+        roc_auc = np.zeros(ys.shape[1])
+        roc_auc[:] = 0.5  # base value for ROC AUC
+        non_zero_label_idices = ys.sum(0).nonzero()
+
+        non_zero_ys = np.squeeze(ys[:, non_zero_label_idices])
+        non_zero_preds = np.squeeze(preds[:, non_zero_label_idices])
+        non_zero_roc_auc = metrics.roc_auc_score(non_zero_ys, non_zero_preds, average=None)
+
+        roc_auc[non_zero_label_idices] = non_zero_roc_auc
 
         if return_by_label_stats and return_roc_auc:
             return p, r, f1, s, accu, roc_auc
