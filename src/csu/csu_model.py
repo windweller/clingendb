@@ -101,7 +101,7 @@ class LSTMBaseConfig(Config):
                  c=False, m=False, co=False,
                  dropout=0.2, emb_update=True, clip_grad=5., seed=1234,
                  rand_unk=True, run_name="default", emb_corpus="gigaword", avg_run_times=1,
-                 conv_enc=3,
+                 conv_enc=0,
                  **kwargs):
         # run_name: the folder for the trainer
         # c: cluster, m: meta, co: co-occurence constraint
@@ -1207,7 +1207,7 @@ class Trainer(object):
         return error_dict
 
     def evaluate(self, is_test=False, is_external=False, silent=False, return_by_label_stats=False,
-                 return_instances=False):
+                 return_instances=False, return_roc_auc=False):
         self.classifier.eval()
         data_iter = self.test_iter if is_test else self.val_iter  # evaluate on CSU
         data_iter = self.external_test_iter if is_external else data_iter  # evaluate on adobe
@@ -1233,8 +1233,11 @@ class Trainer(object):
         accu = np.array([metrics.accuracy_score(ys[:, i], preds[:, i]) for i in range(self.config.label_size)],
                         dtype='float32')
         p, r, f1, s = metrics.precision_recall_fscore_support(ys, preds, average=None)
+        roc_auc = metrics.roc_auc_score(ys, preds, average=None)
 
-        if return_by_label_stats:
+        if return_by_label_stats and return_roc_auc:
+            return p, r, f1, s, accu, roc_auc
+        elif return_by_label_stats:
             return p, r, f1, s, accu
         elif return_instances:
             return ys, preds
@@ -1788,28 +1791,30 @@ class Experiment(object):
         if rebuild_vocab:
             self.dataset.build_vocab(config, True)
 
-        agg_p, agg_r, agg_f1, agg_accu = 0., 0., 0., 0.
+        agg_p, agg_r, agg_f1, agg_accu, agg_roc_auc = 0., 0., 0., 0., 0.
         agg_f1_list = []
 
         for run_order in range(config.avg_run_times):
             if not silent:
                 print("Executing order {}".format(run_order))
             trainer = self.get_trainer(config, device, run_order, build_vocab=False, load=True)
-            p, r, f1, s, accu = trainer.evaluate(is_test=True, is_external=is_external, return_by_label_stats=True,
-                                                 silent=True)
+            p, r, f1, s, accu, roc_auc = trainer.evaluate(is_test=True, is_external=is_external, return_by_label_stats=True,
+                                                 silent=True, return_roc_auc=True)
             agg_p += p;
             agg_r += r;
             agg_f1 += f1;
-            agg_accu += accu
+            agg_accu += accu;
+            agg_roc_auc += roc_auc;
             agg_f1_list.append(f1)
 
         if return_f1_ci:
             return self.compute_label_metrics_ci(config, agg_f1_list)
 
-        agg_p, agg_r, agg_f1, agg_accu = agg_p / float(config.avg_run_times), agg_r / float(config.avg_run_times), \
-                                         agg_f1 / float(config.avg_run_times), agg_accu / float(config.avg_run_times)
+        agg_p, agg_r, agg_f1, agg_accu, agg_roc_auc = agg_p / float(config.avg_run_times), agg_r / float(config.avg_run_times), \
+                                                     agg_f1 / float(config.avg_run_times), agg_accu / float(config.avg_run_times), \
+                                                     agg_roc_auc / float(config.avg_run_times)
 
-        return agg_p, agg_r, agg_f1, agg_accu
+        return agg_p, agg_r, agg_f1, agg_accu, agg_roc_auc
 
     def get_performance(self, config):
         # actually looks into trainer's actual file
