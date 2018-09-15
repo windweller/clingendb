@@ -591,6 +591,7 @@ class MaxPoolingCDBiLSTM(BaseLSTM):
     def extract_keywords(self, sentence, sentence_len, dataset, score_values, label_keyword_dict, label_size=42, threshold=0.2):
         # sentence: x
         # sentence_len: x_len
+        # text_score_tup_list: [('surgery', 4.0), ...]
 
         self.zero_grad()
 
@@ -610,7 +611,6 @@ class MaxPoolingCDBiLSTM(BaseLSTM):
         clf_output = self.model.out(sent_output)
         # output_vec is the hidden states we want!! (T, hid_state_dim)
 
-        # TODO: fix this part
         # y = clf_output[label_idx]
         # label_id = torch.max(clf_output, 0)[1]
 
@@ -620,12 +620,14 @@ class MaxPoolingCDBiLSTM(BaseLSTM):
         for label_idx in range(label_size):
             self.zero_grad()
 
-            clf_output[label_idx].backward(retain_graph=True)
+            y = clf_output[label_idx]
+            grad = torch.autograd.grad(y, output, retain_graph=True)[0]
 
-            scores_A = output.grad.data.squeeze() * torch.from_numpy(rel_A).float()
+            scores_A = grad.data.squeeze() * torch.from_numpy(rel_A).float()
             scores_A = scores_A.sum(dim=1).data.squeeze().numpy().tolist()
 
             assert len(scores_A) == len(text)
+
             score_values.extend(scores_A)
 
             for g, t in zip(scores_A, text):
