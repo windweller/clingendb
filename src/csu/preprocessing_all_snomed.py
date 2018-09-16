@@ -88,7 +88,7 @@ if __name__ == '__main__':
 
     examples = []
     labels_dist = []
-    with open("../../data/csu/final_csu_file4", 'r') as f:
+    with open("../../data/csu/final_csu_file_disease_relevant2", 'r') as f:
         for line in f:
             if header:
                 header = False
@@ -102,11 +102,6 @@ if __name__ == '__main__':
             labels_dist.extend(seq_labels)
             # start from 0, and also join back to " " separation
             examples.append([text, " ".join(seq_labels)])
-
-    # import matplotlib.pyplot as plt
-    #
-    # n, bins, patches = plt.hist(labels_dist, 50, normed=1, facecolor='green', alpha=0.75)
-    # plt.show()
 
     import csv
     # with open("../../data/csu/Files_for_parsing/snomed_ICD_mapped.csv", 'r') as f:
