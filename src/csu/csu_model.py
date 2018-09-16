@@ -1864,7 +1864,7 @@ class Experiment(object):
 def run_baseline(device, label_size):
     random.setstate(orig_state)
     lstm_base_c = LSTMBaseConfig(emb_corpus=emb_corpus, avg_run_times=avg_run_times,
-                                 abel_size=label_size,
+                                 label_size=label_size,
                                  conv_enc=use_conv)
     curr_exp.execute(lstm_base_c, train_epochs=train_epochs, device=device)
     # trainer = curr_exp.get_trainer(config=lstm_base_c, device=device, build_vocab=True)
