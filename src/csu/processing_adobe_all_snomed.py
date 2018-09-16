@@ -45,7 +45,7 @@ with open('../../data/csu/snomed_fine_grained_labels.json', 'r') as f:
     clinical_finding = '404684003'
     disease_node = '64572001'
 
-with open('../../data/csu/snomed_refined_labels_to_name.json', 'r') as f:
+with open('../../data/csu/snomed_fine_grained_labels_to_name.json', 'r') as f:
     snomed_names = json.load(f)
 
 np.random.seed(1234)
