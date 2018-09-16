@@ -1215,7 +1215,7 @@ class Trainer(object):
         data_iter = self.test_iter if is_test else self.val_iter  # evaluate on CSU
         data_iter = self.external_test_iter if is_external else data_iter  # evaluate on adobe
 
-        all_preds, all_y_labels = [], []
+        all_preds, all_y_labels, all_confs = [], [], []
 
         for iter, data in enumerate(data_iter):
             (x, x_lengths), y = data.Text, data.Description
@@ -1224,9 +1224,11 @@ class Trainer(object):
             preds = (torch.sigmoid(logits) > 0.5).data.cpu().numpy().astype(float)
             all_preds.append(preds)
             all_y_labels.append(y.data.cpu().numpy())
+            all_confs.append(torch.sigmoid(logits).data.cpu().numpy().astype(float))
 
         preds = np.vstack(all_preds)
         ys = np.vstack(all_y_labels)
+        confs = np.vstack(all_confs)
 
         if not silent:
             self.logger.info("\n" + metrics.classification_report(ys, preds, digits=3))  # write to file
@@ -1256,7 +1258,7 @@ class Trainer(object):
         elif return_by_label_stats:
             return p, r, f1, s, accu
         elif return_instances:
-            return ys, preds
+            return ys, preds, confs
 
         micro_p, micro_r, micro_f1 = np.average(p, weights=s), np.average(r, weights=s), np.average(f1, weights=s)
 
