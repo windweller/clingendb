@@ -1861,18 +1861,20 @@ class Experiment(object):
 
 # Important! Each time you use "get_iterators", must restore previous random state
 # otherwise the sampling procedure will be different
-def run_baseline(device):
+def run_baseline(device, label_size):
     random.setstate(orig_state)
     lstm_base_c = LSTMBaseConfig(emb_corpus=emb_corpus, avg_run_times=avg_run_times,
+                                 abel_size=label_size,
                                  conv_enc=use_conv)
     curr_exp.execute(lstm_base_c, train_epochs=train_epochs, device=device)
     # trainer = curr_exp.get_trainer(config=lstm_base_c, device=device, build_vocab=True)
     # curr_exp.execute(trainer=trainer)
 
 
-def run_bidir_baseline(device):
+def run_bidir_baseline(device, label_size):
     random.setstate(orig_state)
     lstm_bidir_c = LSTMBaseConfig(bidir=True, emb_corpus=emb_corpus, avg_run_times=avg_run_times,
+                                  label_size=label_size,
                                   conv_enc=use_conv)
     curr_exp.execute(lstm_bidir_c, train_epochs=train_epochs, device=device)
     # trainer = curr_exp.get_trainer(config=lstm_bidir_c, device=device, build_vocab=True)
@@ -1924,8 +1926,11 @@ if __name__ == '__main__':
 
     dataset_number = raw_input("enter dataset name prefix id (1=snomed_multi_label_no_des_ \n "
                                "2=snomed_revised_fields_multi_label_no_des_ \n"
-                               "3=snomed_all_fields_multi_label_no_des_): \n")
+                               "3=snomed_all_fields_multi_label_no_des_\n"
+                               "4=snomed_fine_grained_multi_label_no_des_): \n")
 
+    label_size = 42
+    test_data_name = 'adobe_combined_abbr_matched_snomed_multi_label_no_des_test.tsv'
     if dataset_number.strip() == "":
         print("Default choice to 1")
         dataset_prefix = 'snomed_multi_label_no_des_'
@@ -1935,6 +1940,10 @@ if __name__ == '__main__':
         dataset_prefix = 'snomed_revised_fields_multi_label_no_des_'
     elif int(dataset_number) == 3:
         dataset_prefix = 'snomed_all_fields_multi_label_no_des_'
+    elif int(dataset_number) == 4:
+        dataset_prefix = 'snomed_fine_grained_multi_label_no_des_'
+        label_size = 4577
+        test_data_name = 'adobe_combined_abbr_matched_snomed_fine_grained_label_no_des_test.tsv'
 
     conv_encoder = raw_input("Use conv_encoder or not? 0/1(Hierarchical)/2(Normal)/3(TextCNN) \n")
     assert (conv_encoder == '0' or conv_encoder == '1' or conv_encoder == '2' or conv_encoder == '3')
@@ -1949,7 +1958,7 @@ if __name__ == '__main__':
         train_epochs = int(train_epochs.strip())
 
     print("loading in dataset...will take 3-4 minutes...")
-    dataset = Dataset(dataset_prefix=dataset_prefix)
+    dataset = Dataset(dataset_prefix=dataset_prefix, label_size=label_size, test_data_name=test_data_name)
 
     curr_exp = Experiment(dataset=dataset, exp_save_path='./{}/'.format(exp_name))
 
@@ -1959,8 +1968,8 @@ if __name__ == '__main__':
         IPython.embed()
     elif action == 'baseline':
         # baseline LSTM
-        run_baseline(device_num)
-        run_bidir_baseline(device_num)
+        run_baseline(device_num, label_size)
+        run_bidir_baseline(device_num, label_size)
     elif action == 'meta':
         # baseline LSTM + M
         # run_m_penalty(device_num, beta=1e-3)
@@ -1970,6 +1979,7 @@ if __name__ == '__main__':
         # run_bidir_baseline(device_num)
         #
         # # baseline LSTM + M + bidir
+        assert 'fine_grained' not in dataset_prefix
         run_m_penalty(device_num, beta=1e-4, bidir=True)
         run_m_penalty(device_num, beta=1e-3, bidir=True)
         #
@@ -1983,6 +1993,7 @@ if __name__ == '__main__':
         # run_c_penalty(device_num, sigma_M=1e-4, sigma_B=1e-3, sigma_W=1e-3)
 
     elif action == 'cluster':
+        assert 'fine_grained' not in dataset_prefix
         # baseline LSTM + C
         run_c_penalty(device_num, sigma_M=1e-5, sigma_B=1e-4, sigma_W=1e-4)
         run_c_penalty(device_num, sigma_M=1e-4, sigma_B=1e-3, sigma_W=1e-3)

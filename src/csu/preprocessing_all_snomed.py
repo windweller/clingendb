@@ -174,4 +174,3 @@ if __name__ == '__main__':
     # index matches 0 to 41
     with open('../../data/csu/snomed_fine_grained_labels_to_name.json', 'wb') as f:
         json.dump(names, f)
-
