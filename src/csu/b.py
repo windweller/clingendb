@@ -1,8 +1,8 @@
 import json
 import pandas as pd
-vet_tc = pd.read_csv('Files_for_parsing/snomed_vet_tc.csv', sep='\t')
-final_csu_file = pd.read_csv('final_csu_file2', sep='\t')
-combined_desc = pd.read_csv('Files_for_parsing/combined_desc.txt', sep='\t')
+vet_tc = pd.read_csv('../../data/csu/Files_for_parsing/snomed_vet_tc.csv', sep='\t')
+final_csu_file = pd.read_csv('../../data/csu/final_csu_file2', sep='\t')
+combined_desc = pd.read_csv('../../data/csu/Files_for_parsing/combined_desc.txt', sep='\t')
 def subtype_id_test(x):
     temp_df1 = (vet_tc[['subtype']][vet_tc['supertype'] == x])
     results = temp_df1['subtype']
@@ -29,11 +29,11 @@ for i, item in enumerate(final_csu_file['all_groups']):
         try:
             number = int(number)
             # out_.add(number)
-            out_ = out_ | (supertype_id_test(number) & disease_relevant ) # disease_document)
+            out_ = out_ | (supertype_id_test(number) & disease_relevant) # disease_document)
         except:
             pass
     out.append(list(out_))
 hierarchical_levels = pd.DataFrame({'hierarchical_levels': out})
 new_final_csu_file = pd.concat([final_csu_file, hierarchical_levels], 1) 
-new_final_csu_file.to_csv('final_csu_file_disease_document2', sep='\t', index=False)
+new_final_csu_file.to_csv('../../data/csu/final_csu_file_disease_document2', sep='\t', index=False)
 
