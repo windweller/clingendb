@@ -1123,10 +1123,10 @@ class Trainer(object):
         # save model
         torch.save(self.classifier, pjoin(self.save_path, 'model-{}.pickle'.format(run_order)))
 
-    def test(self, silent=False, return_by_label_stats=False, return_instances=False):
+    def test(self, silent=False, return_by_label_stats=False, return_instances=False, only_41=False):
         self.logger.info("compute test set performance...")
         return self.evaluate(is_test=True, silent=silent, return_by_label_stats=return_by_label_stats,
-                             return_instances=return_instances)
+                             return_instances=return_instances, only_41=only_41)
 
     def get_abstention_data_iter(self, data_iter):
         batched_x_list = []
@@ -1210,12 +1210,14 @@ class Trainer(object):
         return error_dict
 
     def evaluate(self, is_test=False, is_external=False, silent=False, return_by_label_stats=False,
-                 return_instances=False, return_roc_auc=False):
+                 return_instances=False, return_roc_auc=False, only_41=False):
         self.classifier.eval()
         data_iter = self.test_iter if is_test else self.val_iter  # evaluate on CSU
         data_iter = self.external_test_iter if is_external else data_iter  # evaluate on adobe
 
         all_preds, all_y_labels, all_confs = [], [], []
+
+        label_index = 42 if not only_41 else 41
 
         for iter, data in enumerate(data_iter):
             (x, x_lengths), y = data.Text, data.Description
@@ -1226,9 +1228,9 @@ class Trainer(object):
             all_y_labels.append(y.data.cpu().numpy())
             all_confs.append(torch.sigmoid(logits).data.cpu().numpy().astype(float))
 
-        preds = np.vstack(all_preds)
-        ys = np.vstack(all_y_labels)
-        confs = np.vstack(all_confs)
+        preds = np.vstack(all_preds)[:, :label_index]
+        ys = np.vstack(all_y_labels)[:, :label_index]
+        confs = np.vstack(all_confs)[:, :label_index]
 
         if not silent:
             self.logger.info("\n" + metrics.classification_report(ys, preds, digits=3))  # write to file
@@ -1745,7 +1747,7 @@ class Experiment(object):
         return mean, ubs, lbs
 
     def get_meta_result(self, config, device, rebuild_vocab=False, silent=False, return_avg=True,
-                        print_to_file=False, file_name='', append=True):
+                        print_to_file=False, file_name='', append=True, only_41=False):
         # returns: csu_avg_em, csu_avg_micro, csu_avg_macro, pp_avg_em, pp_avg_micro, pp_avg_macro
         # basically ONE row in the results table.
         # return_avg: return 5 runs individually (for std, ci calculation), or return average only
@@ -1760,8 +1762,9 @@ class Experiment(object):
             if not silent:
                 print("Executing order {}".format(run_order))
             trainer = self.get_trainer(config, device, run_order, build_vocab=False, load=True)
-            csu_em, csu_micro_tup, csu_macro_tup = trainer.test(silent=silent)
-            pp_em, pp_micro_tup, pp_macro_tup = trainer.evaluate(is_external=True, silent=silent)
+            csu_em, csu_micro_tup, csu_macro_tup = trainer.test(silent=silent, only_41=only_41)
+            pp_em, pp_micro_tup, pp_macro_tup = trainer.evaluate(is_external=True, silent=silent,
+                                                                 only_41=only_41)
 
             agg_csu_ems.append(csu_em);
             agg_csu_micro_tup.append(np.array(csu_micro_tup))
@@ -1948,7 +1951,6 @@ if __name__ == '__main__':
     conv_encoder = raw_input("Use conv_encoder or not? 0/1(Hierarchical)/2(Normal)/3(TextCNN) \n")
     assert (conv_encoder == '0' or conv_encoder == '1' or conv_encoder == '2' or conv_encoder == '3')
 
-    global use_conv
     use_conv = int(conv_encoder.strip())
 
     train_epochs = raw_input("Enter the number of training epochs: (default 5) \n")
